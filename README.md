@@ -1,0 +1,48 @@
+# FileVault 2.7
+
+Offline Android file organizer with CineVault built in. Same Capacitor + GitHub Actions build as before.
+
+## Build
+1. Upload everything in this folder to a GitHub repo (keep `.github`).
+2. Actions -> Build FileVault APK -> Run workflow.
+3. Download `filevault-debug-apk`, install the APK, grant "All files access", tap the scan button.
+
+## What changed in this version
+- **Sleep timer** (Now playing): 15, 30, 45 or 60 minutes. It runs inside the Android music service, so it still stops the music with the screen off.
+- **Equalizer** (Now playing or Settings > Tools): per-band sliders plus Flat, Bass boost, Treble boost, Vocal and Rock presets, using the phone's own equalizer. Needs the new `MODIFY_AUDIO_SETTINGS` permission, which `prepare-android.js` adds.
+- **Music history**: Recently played and Most played lists, saved on the phone and included in backups.
+- **Search everything**: the magnifier in the Library header searches files (every type), albums, CineVault movies and Reader collections at once. With the box empty it also offers shortcuts to Favorites, Music history and Storage.
+- **Storage dashboard**: phone used/free space, FileVault library size by file type, biggest folders, largest files, recently added. Calculated locally.
+- **Accent colors** (Settings): pick or mix your own highlight color on top of any theme. Included in backups.
+- Backups now also carry play history, accent color and equalizer settings.
+
+### Earlier in 2.6
+- **Video player** is now the CineVault player: full-screen, Landscape/Portrait switch, +/-10 second buttons, seek bar, fit/fill, speed, subtitles for CineVault movies. Videos stream directly from storage (no loading into memory), so long videos work. Resume position is saved every few seconds, on close and when the app goes to the background, so it works for any length. A "Continue watching" row appears in Library > Videos.
+- **Photo viewer**: long file names now shrink with "..." so the full-screen, slideshow and share buttons always stay visible. Swipe between photos, pinch or double-tap to zoom.
+- **Albums**: an album holds any file types or just one (you choose when creating it). Each subfolder holds exactly one type, chosen when you create it; the file picker inside a subfolder is locked to that type. In an "any types" album the picker lets you choose which type to browse.
+- **Music** now plays through a native Android foreground service (notification with previous/play/next, lock-screen controls, keeps playing with the screen off or the app closed, pauses when headphones unplug or a call comes in, goes to the next song by itself). The native media session explicitly advertises transport controls and remains active while the queue is paused so Android can populate its system media controls. Now-playing screen with queue, shuffle, repeat, mini-player, and **lyrics**: paste or type them, or import a .lrc/.txt file. Lyrics with [mm:ss.xx] times scroll in sync with the song. Stored per song, included in backups.
+- **App lock**: the CineVault pattern lock (sounds, recovery word, auto-lock after 20 s away, hide-line option) now protects the whole app. You create the pattern on first launch.
+- **CineVault** is the third item in the bottom menu (Library, Albums, CineVault, Settings). Movies, folders, stats, cast, notes and ratings work as before. Instead of importing, the **movie video and soundtrack songs are linked to files FileVault already sees**, so nothing big is copied. Posters are shrunk to a small image. Settings > Restore also imports a backup file from the old CineVault app (songs keep their titles; link each to a file in Edit).
+- Library index is remembered between launches, thumbnails are made on demand and never saved, back button closes screens one by one, backups go to Documents/FileVault.
+
+- **Shows and Movies tabs** (Library): videos named like `Show.Name.S01E03`, `1x03`, `Season 1 Episode 3`, `Show Ep 05`, or kept in `Show/Season 2/05.mkv` are grouped into Show > Season > Episode. Opening a show gives season chips, an episode list with watched marks and progress bars, and a **Continue** button (resume the episode you were on, otherwise the next unwatched one). The next episode plays automatically when one ends, and the player has a next-episode button. Everything that is not an episode is listed under Movies. You can fix a show name, season or episode by hand, rename a whole show, mark episodes watched or not watched, or mark a movie as an episode with the film button on its row.
+
+- **CineVault movie thumbnail**: when you link a video, the Add movie form and the movie screen show a small preview frame from that video (tap it to play). If you have not chosen a poster, that frame is used as the poster. Only the tiny image is saved, never the video. If Android cannot make the preview, FileVault makes it inside the app instead, and movies linked earlier get their thumbnail filled in automatically when you open the CineVault tab.
+- **Installed apps** tab in Library: lists apps with icons, search, tap to launch. (APK files stay under "APK files".)
+- **Album filter** in Library, next to the tag filter.
+- **Missing files cleanup**: Albums shows a notice when entries in albums, favorites or tags are no longer on the phone; Review & clean up removes only those entries. Also in Settings.
+- **Thumbnail cache** now lives on disk with a size limit (100 MB to 1 GB, default 300 MB), oldest removed first, with a Clear cache button in Settings. Backups include movie thumbnails.
+
+## Known limits
+- The Java code could not be compiled here; if the build fails, send me the log.
+- Some formats (for example certain .mkv or HEVC videos) may not play in the Android WebView; FileVault then offers "Open with".
+- Videos larger than about 2 GB may not seek correctly.
+- Android 13+ asks permission to show notifications the first time you play a song. Music still plays if you say no, but the notification and its controls will not appear.
+
+- **Seasons & episodes picker (CineVault player)**: while watching a CineVault episode, tap the list button in the bottom bar, choose a season, then an episode inside it. The episode you leave keeps its resume position. Seasons come from the Season/Episode fields (or the file name / folder) of the entries in the same folder or sibling Season folders.
+- **Short videos** now resume and count as finished correctly (the resume rules scale with video length).
+
+- **Updates keep your data**: every build is now signed with the fixed key in `signing/debug.keystore`, so a new APK installs over the previous one without uninstalling. (The first install of this version still needs the old app uninstalled once, because older builds used a random key each time. Save a backup in Settings first.)
+
+- **Reader tab (manga + novels)**: opens `.cbz` comics and `.epub` books straight from the phone (nothing is imported or copied). Manga: webtoon scroll or paged left-to-right / right-to-left, chapters grouped per series, page slider, auto-resume. Novels: contents list, text size, line spacing, font and background (App theme / Paper / Black), saved position. Reader progress is resumed from inside the collection folder, rather than showing every chapter as a separate Continue Reading card. ZIP reads use byte-array caching for WebView compatibility, fixing EPUB open failures on devices where Blob slicing is unavailable. You can also open a `.cbz` / `.epub` from the Library.
+- **Back to top**: a round button appears after scrolling down long lists and jumps back to the top.

@@ -1,0 +1,12 @@
+{
+  "appId": "com.filevault.app",
+  "appName": "FileVault",
+  "webDir": "www",
+  "backgroundColor": "#171321",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
