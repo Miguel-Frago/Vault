@@ -93,9 +93,9 @@ function rdDraw(root){
   const ct=$('#rcats',root);
   ct.innerHTML=[{id:'default',name:'Default'},...cats].map(c=>`<button data-c="${esc(c.id)}" class="${c.id===tab&&!q?'on':''}">${esc(c.name)}</button>`).join('')+`<button data-add="1" aria-label="Add category">${ic('plus',16)}</button>`;
   const on=$('.on',ct);if(on)ct.scrollLeft=on.offsetLeft-ct.clientWidth/2+on.offsetWidth/2;
-  /* continue reading: one card per collection, both kinds, newest first */
+  /* continue reading: one card per collection of the CURRENT tab (manga or novels), newest first */
   const CW=$('#rcw',root);
-  const cont=(rdFold||[]).filter(F=>rdLast(F)>0&&rdContinue(F)).sort((a,b)=>rdLast(b)-rdLast(a)).slice(0,10);
+  const cont=(rdFold||[]).filter(F=>F.kind===kind&&rdLast(F)>0&&rdContinue(F)).sort((a,b)=>rdLast(b)-rdLast(a)).slice(0,10);
   CW.innerHTML=(cont.length&&!q)?`<h3 class="rh">Continue Reading</h3><div class="rcr">${cont.map(F=>{
    const c=rdContinue(F),mg=F.kind==='manga',n=rdFlat(F).length,pc=mg?(n?Math.round(rdResume(c.flat).read/n*100):0):rdPct(rdProg[c.file.path]),rc=Math.max(1,rdRecentCount(F));
    const nb=rdAllPaths(F).filter(p=>byPath.has(p)).length;

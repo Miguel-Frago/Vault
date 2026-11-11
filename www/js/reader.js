@@ -15,16 +15,27 @@ async function rdInflate(u8){
 
 /* If the WebView cannot fetch a file URL ("Failed to fetch"), read the file through the Android plugin instead. */
 async function rdNativeBytes(path){
- if(!native||!FV.readFile)throw Error('Could not read this file.');
- const d=await FV.readFile({path}),bin=atob(d.base64),u=new Uint8Array(bin.length);
- for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u}
+ const b64=d=>{const bin=atob(d),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u};
+ let err='';
+ if(native&&FV.readFile){try{const d=await FV.readFile({path});if(d&&d.base64)return b64(d.base64)}catch(e){err=(e&&e.message)||String(e)}}
+ /* second route: Capacitor's own Filesystem plugin */
+ try{const FS=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.Filesystem;
+  if(FS){const d=await FS.readFile({path:'file://'+path});if(d&&typeof d.data==='string')return b64(d.data)}}catch(e){err=err||(e&&e.message)||String(e)}
+ throw Error(err||'Could not read this file.')}
+/* Novels (.epub/.txt) are small: read them through the Android plugin first, because the WebView file address can fail for some file names. */
+const rdPreferNative=path=>{const f=byPath.get(path),x=rdExt(path);return !!native&&(x==='epub'||x==='txt')&&(!f||!f.size||f.size<=40*1048576)};
 async function rdFetchBytes(path){
- try{const r=await fetch(fileUrl(path));if(!r.ok)throw Error('bad status');return new Uint8Array(await r.arrayBuffer())}
- catch(e){return rdNativeBytes(path)}}
+ let ne='';
+ if(rdPreferNative(path)){try{return await rdNativeBytes(path)}catch(e){ne=e.message}}
+ try{const r=await fetch(fileUrl(path));if(!r.ok)throw Error('bad status '+r.status);return new Uint8Array(await r.arrayBuffer())}
+ catch(e){try{return await rdNativeBytes(path)}catch(e2){throw Error('Could not read this file ('+(ne||e2.message||e.message)+').')}}}
 class RdZip{
  static async open(path){
   const z=new RdZip();z.url=fileUrl(path);z.path=path;
-  try{await z._probe()}catch(e){z._data=await rdNativeBytes(path);z.size=z._data.byteLength}
+  if(rdPreferNative(path)){try{z._data=await rdNativeBytes(path);z.size=z._data.byteLength;await z.dir();return z}catch(e){z._data=null;z.nativeErr=e.message}}
+  try{await z._probe()}catch(e){
+   try{z._data=await rdNativeBytes(path);z.size=z._data.byteLength}
+   catch(e2){throw Error('Could not read this book ('+(z.nativeErr||e2.message||e.message)+').')}}
   await z.dir();return z}
  async _probe(){
   const z=this;
@@ -283,7 +294,7 @@ function rdDraw(root){
  // chapter/book cards on the Reader landing page. This prevents one manga series
  // from appearing multiple times in Continue Reading. The strip below shows ONE card
  // per collection (manga and novels together), newest activity first.
- const cont=(rdFold||[]).filter(F=>rdLast(F)>0&&rdContinue(F)).sort((a,b)=>rdLast(b)-rdLast(a)).slice(0,10);
+ const cont=(rdFold||[]).filter(F=>F.kind===rd.tab&&rdLast(F)>0&&rdContinue(F)).sort((a,b)=>rdLast(b)-rdLast(a)).slice(0,10);
  CW.innerHTML=(cont.length&&!q&&!rd.fav)?`<h3 class="rh">Continue Reading</h3><div class="rcr">${cont.map(F=>{
    const c=rdContinue(F),mg=F.kind==='manga',n=rdFlat(F).length,pc=mg?(n?Math.round(rdResume(c.flat).read/n*100):0):rdPct(rdProg[c.file.path]),rc=Math.max(1,rdRecentCount(F));
    const sub=mg?`Manga · ${rc} chapter${rc===1?'':'s'} recently read`:`Novels · ${rdAllPaths(F).filter(p=>byPath.has(p)).length} book${rdAllPaths(F).filter(p=>byPath.has(p)).length===1?'':'s'}`;

@@ -1,3 +1,8 @@
+# FileVault 3.0.1
+
+- **Reader – Continue Reading** now only shows collections of the tab you are on: the Novels tab lists novels only, the Manga tab lists manga only.
+- **Reader – "Failed to fetch" on novels**: EPUB/TXT books are now read through the Android plugin first (then Capacitor Filesystem, then the WebView address as a last resort), so file names with apostrophes, brackets or other special characters no longer matter. If it still fails, the toast now shows the real reason in brackets, e.g. "Could not read this book (File not found.)". Send me that text.
+
 # FileVault 3.0
 
 Offline Android file organizer with CineVault built in. Same Capacitor + GitHub Actions build as before.
