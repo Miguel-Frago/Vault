@@ -1,4 +1,4 @@
-# FileVault 2.8
+# FileVault 2.9
 
 Offline Android file organizer with CineVault built in. Same Capacitor + GitHub Actions build as before.
 
@@ -7,7 +7,15 @@ Offline Android file organizer with CineVault built in. Same Capacitor + GitHub 
 2. Actions -> Build FileVault APK -> Run workflow.
 3. Download `filevault-debug-apk`, install the APK, grant "All files access", tap the scan button.
 
-## What changed in this version
+## What changed in 2.9
+- **Reader - novels**: a collection card now keeps its own name. Before, once its cover loaded, a novel collection such as "My Fantasy Novels" was renamed to the title of the first book inside it.
+- **Reader - Continue Reading**: the top of the Reader tab shows **one card per collection** (manga and novels together, most recent first), not one card per chapter. Manga cards read "Manga · 2 chapters recently read" with **Continue Chapter N**; novel cards read "Novels · 3 books" with **Continue reading** and a progress bar. Tap a card to resume exactly where you stopped; the small folder icon opens the collection instead.
+- **Reader - recently opened collections**: sort the folder grid by **Recently read** (default) or **A-Z**. Inside a manga collection the chapter you stopped on is highlighted ("continue here").
+- **Reader - manga**: jumping with the page slider in webtoon mode now saves your page (before, only scrolling saved it, so Continue could return to an older page).
+- **Reader - reading backgrounds**: new **Sepia** and **Night** next to App theme, Paper and Black.
+- **Accent colors** are now true circles (they were stretched into ovals), and the one you picked shows a ring.
+
+### Added in 2.8
 - **Albums**: names, **descriptions** and **cover photos** (only a small copy of the picture is kept), **nested subfolders** (a subfolder can hold subfolders), **sort** (recently added, name, newest, oldest, largest), **grid size** (list, small, medium, large), **search inside an album or subfolder**, and a **favorites only** filter. Originals are never touched.
 - **Reader**: **.txt books** (chapters are detected from "Chapter 1"-style lines, otherwise the text is cut into parts), **.pdf** books (opened in the PDF viewer), **.cbr** comics (works when the file is really a ZIP, which most are; a true RAR shows a clear message), **custom folder covers and descriptions**, **favorite folders** with a Favorites filter, and **bookmarks** inside every novel and manga series (bookmark button in the reader bar).
 - **CineVault watch history**: clock button in CineVault (also Settings > Tools and Search everything): in-progress and finished videos with dates, remove one or clear all. Resume from the exact second already worked.

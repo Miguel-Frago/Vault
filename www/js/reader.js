@@ -163,7 +163,7 @@ let rdProg=null,rdSet=null,rdMeta=null,rdFold=null;
 async function rdLoad(){
  if(rdProg)return;
  rdProg=(await getS('rdp'))||{};rdMeta=(await getS('rdm'))||{};rdFold=(await getS('rdf'))||[];rdBm=(await getS('rdb'))||{};
- rdSet={mode:'web',fit:'screen',nsize:19,nline:1.7,nfont:'serif',ntheme:'app',...((await getS('rds'))||{})}}
+ rdSet={mode:'web',fit:'screen',nsize:19,nline:1.7,nfont:'serif',ntheme:'app',sort:'recent',...((await getS('rds'))||{})}}
 let rdPT=0,rdMT=0;
 const rdSave=()=>{clearTimeout(rdPT);rdPT=setTimeout(()=>setS('rdp',rdProg).catch(()=>{}),500)};
 const rdMetaSave=()=>{clearTimeout(rdMT);rdMT=setTimeout(()=>setS('rdm',rdMeta).catch(()=>{}),800)};
@@ -208,6 +208,19 @@ function rdNovelResume(F){
  const f=list[idx],x=rdProg[f.path]||{};
  return{file:f,pct:rdPct(x),fresh:false,read}}
 
+/* ---------- collections: when last read, and what "Continue" means ---------- */
+const RD_RECENT=30*864e5;
+function rdLast(F){let at=0;rdAllPaths(F).forEach(p=>{const x=rdProg[p];if(x&&x.at>at)at=x.at});return at}
+const rdActive=F=>Math.max(F.opened||0,rdLast(F));
+const rdRecentCount=F=>{const now=Date.now();return rdAllPaths(F).filter(p=>{const x=rdProg[p];return x&&x.at&&now-x.at<RD_RECENT&&byPath.has(p)}).length};
+function rdContinue(F){
+ if(F.kind==='manga'){const flat=rdFlat(F);if(!flat.length)return null;const st=rdResume(flat);return{flat,st,file:flat[st.idx],label:rdChLabel(flat[st.idx])}}
+ const nr=rdNovelResume(F);return nr.file?{nr,file:nr.file,label:rdTitle(nr.file)}:null}
+function rdResumeCollection(F){
+ const c=rdContinue(F);if(!c)return rdFolderSheet(F.id);
+ F.opened=Date.now();rdSaveF();
+ return F.kind==='manga'?openManga(c.flat,c.st.idx,F.name):openNovel(c.file.path)}
+
 /* ---------- covers ---------- */
 async function rdCover(f){
  const key='rd|'+f.path+'|'+f.modified+'|'+f.size;
@@ -227,7 +240,8 @@ async function rdHydrate(el){
  const f=byPath.get(el.dataset.cp);if(!f||!el.isConnected)return;
  const u=await rdCover(f);if(!el.isConnected)return;
  if(u)el.innerHTML=`<img alt="" src="${u}">`;
- const m=rdMeta[f.path];const t=el.closest('.rc')&&el.closest('.rc').querySelector('.rct');if(t&&f.extension==='epub'&&m&&m.t)t.textContent=m.t}
+ const m=rdMeta[f.path],card=el.closest('.rc[data-p]'),t=card&&card.querySelector('.rct'); /* only single-book cards take the book title; collection cards keep their own name */
+ if(t&&f.extension==='epub'&&m&&m.t)t.textContent=m.t}
 function rdPump(){while(rdCovBusy<2&&rdCovQ.length){const j=rdCovQ.pop();rdCovBusy++;j().catch(()=>{}).finally(()=>{rdCovBusy--;rdPump()})}}
 const rdWatch=root=>$$('.rcv[data-cp]:not([data-h])',root).forEach(el=>{el.dataset.h='1';rdIO.observe(el)});
 
@@ -236,10 +250,13 @@ const rd={tab:'manga',q:'',fav:false};
 async function renderReader(root){
  await rdLoad();
  root.innerHTML=`<header class="hd"><h1>${ic('book',26)} Reader</h1><button class="b" id="rnf">${ic('plus',16)} Folder</button></header><div class="pad">
-  <p class="mu">Make a folder for each manga or novel, then add your .cbz / .cbr comics or .epub / .txt / .pdf books to it. Your files are never moved or copied.</p>
+  <div id="rcw"></div>
+  ${rdFold.length?'':'<p class="mu">Make a folder for each manga or novel, then add your .cbz / .cbr comics or .epub / .txt / .pdf books to it. Your files are never moved or copied.</p>'}
   <div class="tabs" id="rtabs"><button data-k="manga" class="${rd.tab==='manga'?'on':''}">${ic('image',16)} Manga</button><button data-k="novel" class="${rd.tab==='novel'?'on':''}">${ic('book',16)} Novels</button><button data-f="1" class="${rd.fav?'on':''}">${ic('heart',16)} Favorites</button></div>
   <input id="rq" type="search" placeholder="Search folders…" value="${esc(rd.q)}" autocomplete="off">
-  <div id="rcw"></div><div id="rl"></div></div>`;
+  <div class="rsort" id="rsort"><span class="mu">Sort</span><button class="b2 ${rdSet.sort!=='name'?'sel':''}" data-s="recent">Recently read</button><button class="b2 ${rdSet.sort==='name'?'sel':''}" data-s="name">A–Z</button></div>
+  <div id="rl"></div></div>`;
+ $('#rsort',root).onclick=e=>{const b=e.target.closest('[data-s]');if(!b)return;rdSet.sort=b.dataset.s;rdSetSave();$$('#rsort [data-s]',root).forEach(x=>x.classList.toggle('sel',x===b));rdDraw(root)};
  $('#rtabs',root).onclick=e=>{const fb=e.target.closest('[data-f]');if(fb){rd.fav=!rd.fav;renderReader(root);return}const b=e.target.closest('[data-k]');if(!b)return;rd.tab=b.dataset.k;rd.q='';renderReader(root)};
  $('#rq',root).oninput=e=>{rd.q=e.target.value;rdDraw(root)};
  $('#rnf',root).onclick=()=>rdNewFolder(rd.tab,F=>{rdFolderSheet(F.id);setTimeout(()=>rdAddFiles(F.id,'',()=>{const t=topLayer();if(t&&t.refresh)t.refresh()}),250)});
@@ -248,16 +265,24 @@ function rdCard(o){return `<article class="rc" data-k="${esc(o.key)}"><div class
 function rdDraw(root){
  const q=rd.q.trim().toLowerCase(),L=$('#rl',root),CW=$('#rcw',root),kind=rd.tab,manga=kind==='manga';
  const mine=(rdFold||[]).filter(F=>F.kind===kind).sort((a,b)=>rdNat(a.name,b.name)),list=(q?mine.filter(F=>F.name.toLowerCase().includes(q)):mine).filter(F=>!rd.fav||F.fav);
+ if(rdSet.sort!=='name')list.sort((a,b)=>rdActive(b)-rdActive(a)||rdNat(a.name,b.name));
  // Resume is intentionally shown inside each collection folder, not as separate
  // chapter/book cards on the Reader landing page. This prevents one manga series
- // from appearing multiple times in Continue Reading.
- CW.innerHTML='';
- if(!mine.length)L.innerHTML=`<div class="empty">No ${manga?'manga':'novel'} folders yet.<br>Tap <b>+ Folder</b>, name it${manga?' after your manga':' (for example a series)'}, then pick the ${manga?'.cbz chapters':'.epub books'} to put inside.${files.length?'':'<br><br>Scan your phone from the Library tab first so your files can be found.'}</div>`;
+ // from appearing multiple times in Continue Reading. The strip below shows ONE card
+ // per collection (manga and novels together), newest activity first.
+ const cont=(rdFold||[]).filter(F=>rdLast(F)>0&&rdContinue(F)).sort((a,b)=>rdLast(b)-rdLast(a)).slice(0,10);
+ CW.innerHTML=(cont.length&&!q&&!rd.fav)?`<h3 class="rh">Continue Reading</h3><div class="rcr">${cont.map(F=>{
+   const c=rdContinue(F),mg=F.kind==='manga',n=rdFlat(F).length,pc=mg?(n?Math.round(rdResume(c.flat).read/n*100):0):rdPct(rdProg[c.file.path]),rc=Math.max(1,rdRecentCount(F));
+   const sub=mg?`Manga · ${rc} chapter${rc===1?'':'s'} recently read`:`Novels · ${rdAllPaths(F).filter(p=>byPath.has(p)).length} book${rdAllPaths(F).filter(p=>byPath.has(p)).length===1?'':'s'}`;
+   return `<article class="crd" data-c="${esc(F.id)}"><div class="rcv crc" ${F.cover?'':`data-cp="${esc(c.file.path)}"`}>${F.cover?`<img alt="" src="${F.cover}">`:ic(mg?'image':'book',24)}</div><div class="crx"><b>${esc(F.name)}</b><span class="crs">${esc(sub)}</span><span class="crb">${ic('play',14,'fl')} ${mg?'Continue '+esc(c.label):'Continue reading'}</span>${pc?`<div class="rcp"><i style="width:${pc}%"></i></div>`:''}</div><button class="i cro" aria-label="Open collection">${ic('folder',18)}</button></article>`}).join('')}</div>`:'';
+ CW.onclick=e=>{const c=e.target.closest('.crd');if(!c)return;const F=rdFold.find(x=>x.id===c.dataset.c);if(!F)return;
+  if(e.target.closest('.cro'))return rdFolderSheet(F.id);rdResumeCollection(F)};
+ if(!mine.length)L.innerHTML=`<div class="empty">No ${manga?'manga':'novel'} folders yet.<br>Tap <b>+ Folder</b>, name it${manga?' after your manga':' (for example a series)'}, then pick the ${manga?'.cbz / .cbr chapters':'.epub, .txt or .pdf books'} to put inside.${files.length?'':'<br><br>Scan your phone from the Library tab first so your files can be found.'}</div>`;
  else if(!list.length)L.innerHTML=`<div class="empty">No folder matches “${esc(rd.q)}”.</div>`;
  else L.innerHTML=`<h3 class="rh">${manga?'Manga':'Novels'} <span class="mu">· ${list.length} folder${list.length>1?'s':''}</span></h3><div class="rgrid">${list.map(F=>{
    const flat=rdFlat(F),st=rdResume(flat),n=flat.length,unread=n-st.read;
    return rdCard({key:'f|'+F.id,cover:flat[0]?flat[0].path:'',icon:'folder',img:F.cover||'',title:(F.fav?'♥ ':'')+F.name,sub:n+(manga?' chapter':' book')+(n===1?'':'s')+(F.folders.length?' · '+F.folders.length+' sub':''),badge:manga&&unread>0?String(unread):'',pct:n?Math.round(st.read/n*100):0})}).join('')}</div>`;
- L.onclick=CW.onclick=e=>{const c=e.target.closest('.rc');if(!c)return;const k=c.dataset.k;
+ L.onclick=e=>{const c=e.target.closest('.rc');if(!c)return;const k=c.dataset.k;
   if(k.startsWith('f|'))return rdFolderSheet(k.slice(2));
   const p=k.slice(2);
   if(!manga)return openNovel(p);
@@ -300,6 +325,7 @@ function rdAddFiles(fid,sid,done){
 /* a folder: resume button, files, subfolders */
 function rdFolderSheet(fid){
  let edit=false;
+ {const F0=rdFold.find(x=>x.id===fid);if(F0){F0.opened=Date.now();rdSaveF()}}
  return sheet(el=>{
   const F=rdFold.find(x=>x.id===fid);if(!F){el.close();return}
   const manga=F.kind==='manga',flat=rdFlat(F),st=rdResume(flat);
@@ -308,12 +334,12 @@ function rdFolderSheet(fid){
   const items=(paths,sid)=>{
    const L=rdSortPaths(F.kind,paths);
    if(!L.length)return `<div class="mu" style="padding:8px 2px">Nothing here yet.</div>`;
-   if(manga)return `<div class="rcl">${L.map(f=>{const x=rdProg[f.path],pc=rdPct(x);return `<div class="rch ${x&&x.done?'dn':''}" data-p="${esc(f.path)}"><div class="grow"><b>${esc(rdChLabel(f))}</b><div class="mu">${x&&x.done?'Read':pc?pc+'% · page '+((x.p||0)+1)+'/'+(x.n||'?'):esc(bytes(f.size))}</div></div>${x&&x.done?ic('check',18):''}${rm(f.path,sid)}</div>`}).join('')}</div>`;
+   if(manga)return `<div class="rcl">${L.map(f=>{const x=rdProg[f.path],pc=rdPct(x),nowF=!st.fresh&&flat[st.idx]&&flat[st.idx].path===f.path;return `<div class="rch ${x&&x.done?'dn':''} ${nowF?'on':''}" data-p="${esc(f.path)}"><div class="grow"><b>${esc(rdChLabel(f))}</b><div class="mu">${x&&x.done?'Read':pc?pc+'% · page '+((x.p||0)+1)+'/'+(x.n||'?'):esc(bytes(f.size))}${nowF&&!(x&&x.done)?' · continue here':''}</div></div>${x&&x.done?ic('check',18):''}${rm(f.path,sid)}</div>`}).join('')}</div>`;
    return `<div class="rgrid">${L.map(f=>{const x=rdProg[f.path],a=(rdMeta[f.path]||{}).a;return `<div class="rcw"><article class="rc" data-p="${esc(f.path)}"><div class="rcv" data-cp="${esc(f.path)}">${ic('book',30)}</div>${x&&x.done?'<span class="rcb">✓</span>':''}<div class="rct">${esc(rdTitle(f))}</div><div class="rcs">${esc(a||bytes(f.size))}</div>${rdPct(x)?`<div class="rcp"><i style="width:${rdPct(x)}%"></i></div>`:''}</article>${rm(f.path,sid)}</div>`}).join('')}</div>`};
   const head=(title,count,sid)=>`<div class="row rfh"><b class="grow">${esc(title)}</b><span class="mu">${count}</span><button class="b2" data-add="${esc(sid)}">${ic('plus',14)} Add</button>${edit&&sid?`<button class="i" data-rs="${esc(sid)}" aria-label="Rename subfolder">${ic('edit',18)}</button><button class="i" data-ds="${esc(sid)}" aria-label="Delete subfolder">${ic('trash',18)}</button>`:''}</div>`;
   const nr=manga?null:rdNovelResume(F);
   el.innerHTML=`<header class="hd"><button class="i" data-x aria-label="Back">${ic('back',24)}</button><h2><span>${esc(F.name)}</span></h2><button class="i" id="rfe" aria-label="${edit?'Done editing':'Edit'}">${ic(edit?'check':'edit',22)}</button><button class="i" id="rfm" aria-label="More">${ic('more',22)}</button></header>
-  <div class="pad">${manga&&flat.length?`<div class="rsh"><div class="rcv rsc" data-cp="${esc(flat[0].path)}">${ic('image',30)}</div><div class="grow"><div class="mu">${flat.length} chapter${flat.length>1?'s':''} · ${st.read} read</div><div class="row"><button class="b" id="rsr">${ic('play',16,'fl')} ${st.fresh?'Start reading':'Resume · '+esc(rdChLabel(flat[st.idx]))}</button></div></div></div>`:(!manga&&nr.file?`<div class="rsh"><div class="rcv rsc" data-cp="${esc(nr.file.path)}">${ic('book',30)}</div><div class="grow"><div class="mu">${flat.length} book${flat.length===1?'':'s'} · ${nr.read} finished</div><div class="row"><button class="b" id="rsr">${ic('play',16,'fl')} ${nr.fresh?'Start reading':`Continue · ${esc(rdTitle(nr.file))}`}</button></div></div></div>`:'')}
+  <div class="pad">${manga&&flat.length?`<div class="rsh"><div class="rcv rsc" data-cp="${esc(flat[0].path)}">${ic('image',30)}</div><div class="grow"><div class="mu">${flat.length} chapter${flat.length>1?'s':''} · ${st.read} read</div><div class="row"><button class="b" id="rsr">${ic('play',16,'fl')} ${st.fresh?'Start reading':'Continue '+esc(rdChLabel(flat[st.idx]))}</button></div></div></div>`:(!manga&&nr.file?`<div class="rsh"><div class="rcv rsc" data-cp="${esc(nr.file.path)}">${ic('book',30)}</div><div class="grow"><div class="mu">${flat.length} book${flat.length===1?'':'s'} · ${nr.read} finished</div><div class="row"><button class="b" id="rsr">${ic('play',16,'fl')} ${nr.fresh?'Start reading':`Continue · ${esc(rdTitle(nr.file))}`}</button></div></div></div>`:'')}
    ${head(manga?'Chapters':'Books',F.paths.filter(p=>byPath.has(p)).length,'')}${items(F.paths,'')}
    ${F.folders.map(s=>head(s.name,s.paths.filter(p=>byPath.has(p)).length,s.id)+items(s.paths,s.id)).join('')}
    ${!F.paths.length&&!F.folders.length?'':''}</div>`;
@@ -439,7 +465,7 @@ async function openManga(list,startIdx,seriesTitle){
 
  /* --- panels --- */
  const chapters=()=>{
-  const p=rdPanel(el,`<div class="rdph2"><b>Chapters</b><span class="grow"></span><button class="b2" id="rtop">Top</button><button class="b2" id="rcur">Current</button><button class="i" data-c aria-label="Close">${ic('close',20)}</button></div><div class="rdlist" id="rdlist">${list.map((f,i)=>{const c=rdName(f.name),x=rdProg[f.path];return `<div class="rch ${i===idx?'on':''} ${x&&x.done?'dn':''}" data-i="${i}"><div class="grow"><b>${esc(c.num!=null?'Chapter '+c.num:f.name.replace(/\.cbz$/i,''))}</b><div class="mu">${x&&x.done?'Read':x&&x.n?(x.p+1)+'/'+x.n+' pages':''}</div></div>${x&&x.done?ic('check',18):''}</div>`}).join('')}</div>`);
+  const p=rdPanel(el,`<div class="rdph2"><b>Chapters</b><span class="grow"></span><button class="b2" id="rtop">Top</button><button class="b2" id="rcur">Current</button><button class="i" data-c aria-label="Close">${ic('close',20)}</button></div><div class="rdlist" id="rdlist">${list.map((f,i)=>{const c=rdName(f.name),x=rdProg[f.path];return `<div class="rch ${i===idx?'on':''} ${x&&x.done?'dn':''}" data-i="${i}"><div class="grow"><b>${esc(c.num!=null?'Chapter '+c.num:f.name.replace(/\.(cbz|cbr)$/i,''))}</b><div class="mu">${x&&x.done?'Read':x&&x.n?(x.p+1)+'/'+x.n+' pages':''}</div></div>${x&&x.done?ic('check',18):''}</div>`}).join('')}</div>`);
   const L=$('#rdlist',p),cur0=L.querySelector('.on');if(cur0)cur0.scrollIntoView({block:'center'});
   $('[data-c]',p).onclick=()=>p.remove();$('#rtop',p).onclick=()=>L.scrollTo({top:0,behavior:'smooth'});$('#rcur',p).onclick=()=>{const c=L.querySelector('.on');if(c)c.scrollIntoView({block:'center',behavior:'smooth'})};
   L.onclick=e=>{const r=e.target.closest('.rch');if(r){p.remove();const i=+r.dataset.i;if(i!==idx)loadChapter(i)}}};
@@ -458,7 +484,7 @@ async function openManga(list,startIdx,seriesTitle){
  $('#rdl',el).onclick=chapters;$('#rds',el).onclick=settings;
  $('#rdp',el).onclick=()=>loadChapter(idx-1);$('#rdx',el).onclick=()=>loadChapter(idx+1);
  $('#rdk',el).onclick=()=>rdBookmarks(el,'m|'+(seriesTitle||list[0].path),()=>({label:label()+' · page '+(cur+1),f:F().path,p:cur}),b=>{const k=list.findIndex(x=>x.path===b.f);if(k<0)return toast('That chapter is no longer in this folder.');rdProg[b.f]={...(rdProg[b.f]||{}),p:b.p,done:false,at:Date.now()};loadChapter(k)});
- slider.oninput=()=>{const i=+slider.value-1;$('#rdc',el).textContent=i+1;if(rdSet.mode==='web'){if(wraps[i]){jump=true;loadPage(i);wraps[i].scrollIntoView();setTimeout(()=>jump=false,300);cur=i;ui()}}else showPage(i)};
+ slider.oninput=()=>{const i=+slider.value-1;$('#rdc',el).textContent=i+1;if(rdSet.mode==='web'){if(wraps[i]){jump=true;loadPage(i);wraps[i].scrollIntoView();setTimeout(()=>jump=false,300);cur=i;ui();save(cur>=pages.length-1)}}else showPage(i)};
  pushLayer(el,()=>{dead=true;if(pio)pio.disconnect();if(cio)cio.disconnect();for(const k of[...urls.keys()])freeUrl(k);rdSave();if(curTab==='reader')rdDraw($('#page'))});
  loadChapter(idx)}
 
@@ -549,7 +575,7 @@ async function openNovel(path,startCh,startRatio){
    <div class="rdrow"><span>Size</span><button class="b2" data-a="fs-">A−</button><b>${rdSet.nsize}</b><button class="b2" data-a="fs+">A+</button></div>
    <div class="rdrow"><span>Line spacing</span>${[1.4,1.6,1.8,2].map(v=>`<button class="b2 ${rdSet.nline==v?'sel':''}" data-lh="${v}">${v}</button>`).join('')}</div>
    <div class="rdrow"><span>Font</span>${[['serif','Serif'],['sans','Sans'],['mono','Mono']].map(([k,n])=>`<button class="b2 ${rdSet.nfont===k?'sel':''}" data-ff="${k}">${n}</button>`).join('')}</div>
-   <div class="rdrow"><span>Background</span>${[['app','App theme'],['paper','Paper'],['black','Black']].map(([k,n])=>`<button class="b2 ${rdSet.ntheme===k?'sel':''}" data-th="${k}">${n}</button>`).join('')}</div>`;
+   <div class="rdrow"><span>Background</span>${[['app','App theme'],['paper','Paper'],['sepia','Sepia'],['night','Night'],['black','Black']].map(([k,n])=>`<button class="b2 ${rdSet.ntheme===k?'sel':''}" data-th="${k}">${n}</button>`).join('')}</div>`;
   const p=rdPanel(el,draw());p.classList.add('low');
   const bind=()=>{$('[data-c]',p).onclick=()=>p.remove()};bind();
   p.onclick=e=>{e.stopPropagation();if(e.target===p){p.remove();return}
