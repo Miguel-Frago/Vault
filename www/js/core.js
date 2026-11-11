@@ -17,7 +17,7 @@ const applyTheme=t=>{if(!t||t==='gold'||t==='default')delete document.documentEl
 const curTheme=()=>document.documentElement.dataset.theme||'gold';
 
 /* a path -> URL the WebView can stream (Capacitor serves local files with Range support) */
-const fileUrl=p=>{const e=String(p).split('/').map(encodeURIComponent).join('/');const c=window.Capacitor;return c&&c.convertFileSrc?c.convertFileSrc(e):'file://'+e};
+const fileUrl=p=>{const e=String(p).split('/').map(x=>encodeURIComponent(x).replace(/[!'()*]/g,c=>'%'+c.charCodeAt(0).toString(16).toUpperCase())).join('/');const c=window.Capacitor;return c&&c.convertFileSrc?c.convertFileSrc(e):'file://'+e};
 
 /* ===== IndexedDB ===== */
 let db;

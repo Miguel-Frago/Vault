@@ -13,9 +13,21 @@ async function rdInflate(u8){
  w.write(u8).catch(()=>{});w.close().catch(()=>{});
  return new Uint8Array(await new Response(ds.readable).arrayBuffer())}
 
+/* If the WebView cannot fetch a file URL ("Failed to fetch"), read the file through the Android plugin instead. */
+async function rdNativeBytes(path){
+ if(!native||!FV.readFile)throw Error('Could not read this file.');
+ const d=await FV.readFile({path}),bin=atob(d.base64),u=new Uint8Array(bin.length);
+ for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u}
+async function rdFetchBytes(path){
+ try{const r=await fetch(fileUrl(path));if(!r.ok)throw Error('bad status');return new Uint8Array(await r.arrayBuffer())}
+ catch(e){return rdNativeBytes(path)}}
 class RdZip{
  static async open(path){
-  const z=new RdZip();z.url=fileUrl(path);
+  const z=new RdZip();z.url=fileUrl(path);z.path=path;
+  try{await z._probe()}catch(e){z._data=await rdNativeBytes(path);z.size=z._data.byteLength}
+  await z.dir();return z}
+ async _probe(){
+  const z=this;
   const r=await fetch(z.url,{headers:{Range:'bytes=0-0'}});
   if(r.status>=400)throw Error('Could not read this file.');
   const m=(r.headers.get('Content-Range')||'').match(/\/(\d+)$/);
@@ -25,15 +37,16 @@ class RdZip{
    // rather than mistaking the one-byte probe for the whole book.
    const full=await fetch(z.url);if(!full.ok)throw Error('Could not read this file.');
    z._data=new Uint8Array(await full.arrayBuffer());z.size=z._data.byteLength;
-  }else{z._data=new Uint8Array(await r.arrayBuffer());z.size=z._data.byteLength}
-  await z.dir();return z}
+  }else{z._data=new Uint8Array(await r.arrayBuffer());z.size=z._data.byteLength}}
  static async fromBlob(b){const z=new RdZip();z._data=new Uint8Array(await b.arrayBuffer());z.size=z._data.byteLength;await z.dir();return z}
  async part(a,b){
   if(this._data)return this._data.slice(a,b);
-  const r=await fetch(this.url,{headers:{Range:`bytes=${a}-${b-1}`}});
-  if(r.status===206)return new Uint8Array(await r.arrayBuffer());
-  if(r.status===200){this._data=new Uint8Array(await r.arrayBuffer());this.size=this._data.byteLength;return this._data.slice(a,b)}
-  throw Error('Could not read this file.')}
+  try{
+   const r=await fetch(this.url,{headers:{Range:`bytes=${a}-${b-1}`}});
+   if(r.status===206)return new Uint8Array(await r.arrayBuffer());
+   if(r.status===200){this._data=new Uint8Array(await r.arrayBuffer());this.size=this._data.byteLength;return this._data.slice(a,b)}
+   throw Error('Could not read this file.')}
+  catch(e){this._data=await rdNativeBytes(this.path);this.size=this._data.byteLength;return this._data.slice(a,b)}}
  async dir(){
   const tail=await this.part(Math.max(0,this.size-70000),this.size),dv=new DataView(tail.buffer,tail.byteOffset,tail.byteLength);
   let e=-1;for(let i=tail.length-22;i>=0;i--){if(dv.getUint32(i,true)===0x06054b50){e=i;break}}
@@ -118,13 +131,13 @@ async function rdParseEpub(zip){
   if(ncx&&zip.find(ncx.path)){try{const x=await zip.text(ncx.path);
    for(const m of x.matchAll(/<navPoint\b[\s\S]*?<text[^>]*>([\s\S]*?)<\/text>[\s\S]*?<content\b[^>]*src\s*=\s*["']([^"']*)["']/gi))addToc(ncx.path,rdStrip(m[1]),m[2])}catch(e){}}}
  if(!toc.length)toc=spine.map((s,i)=>({title:'Section '+(i+1),idx:i,frag:''}));
- return{zip,title:meta('title'),author:meta('creator'),cover,spine,toc,pathIdx}}
+ return{zip,title:meta('title'),author:meta('creator'),desc:meta('description'),subjects:[...opf.matchAll(/<(?:\w+:)?subject\b[^>]*>([\s\S]*?)<\/(?:\w+:)?subject>/gi)].map(m=>rdStrip(m[1])).filter(Boolean),cover,spine,toc,pathIdx}}
 const rdOpenEpub=async path=>rdExt(path)==='txt'?rdOpenTxt(path):rdParseEpub(await RdZip.open(path));
 /* ---------- TXT books: split into chapters on the fly, so they read like an EPUB ---------- */
 const rdExt=p=>((String(p).match(/\.([a-z0-9]+)$/i)||[])[1]||'').toLowerCase();
 const RD_HEAD=/^\s*(?:(?:chapter|chap\.?|prologue|epilogue|part|volume|book|interlude|afterword)\b|第[0-9一二三四五六七八九十百千零〇两]+[章节話话回卷]).{0,70}$/i;
 async function rdOpenTxt(path){
- const buf=await(await fetch(fileUrl(path))).arrayBuffer();
+ const buf=(await rdFetchBytes(path)).buffer;
  let t;try{t=new TextDecoder('utf-8',{fatal:true}).decode(buf)}catch(e){t=new TextDecoder('windows-1252').decode(buf)}
  t=t.replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n');
  const lines=t.split('\n'),marks=[];
@@ -229,7 +242,7 @@ async function rdCover(f){
  let blob=null;
  try{
   if(f.extension==='cbz'||f.extension==='cbr'){const z=await RdZip.open(f.path),pg=z.images()[0];if(pg)blob=await z.blob(pg)}
-  else if(f.extension==='epub'){const bk=await rdOpenEpub(f.path);rdMeta[f.path]={t:bk.title||'',a:bk.author||''};rdMetaSave();if(bk.cover)blob=await bk.zip.blob(bk.cover)}
+  else if(f.extension==='epub'){const bk=await rdOpenEpub(f.path);rdMeta[f.path]={...(rdMeta[f.path]||{}),t:bk.title||'',a:bk.author||''};rdMetaSave();if(bk.cover)blob=await bk.zip.blob(bk.cover)}
   if(blob)blob=await shrink(blob,360)}
  catch(e){return null}
  if(!blob)return null;
@@ -517,7 +530,7 @@ async function openNovel(path,startCh,startRatio){
  if(rdExt(path)==='pdf'){rdProg[path]={...(rdProg[path]||{}),at:Date.now()};rdSave();return openFile(path)}
  let bk;
  try{toast('Opening book…');bk=await rdOpenEpub(path)}catch(e){return toast(e.message||'Could not open this book.')}
- rdMeta[path]={t:bk.title||'',a:bk.author||''};rdMetaSave();
+ rdMeta[path]={...(rdMeta[path]||{}),t:bk.title||'',a:bk.author||''};rdMetaSave();
  const el=rdOverlay('nv');
  el.dataset.nt=rdSet.ntheme;
  el.innerHTML=`<div class="rdtop"><button class="i" data-x aria-label="Back">${ic('back',24)}</button><div class="rdtt"><b id="rdt1">${esc(bk.title||(f?f.name:''))}</b><span id="rdt2"></span></div><button class="i" id="rdk" aria-label="Bookmarks">${ic('bookmark',22)}</button><button class="i" id="rdl" aria-label="Contents">${ic('list',22)}</button><button class="i" id="rds" aria-label="Text settings">${ic('textsize',22)}</button></div>

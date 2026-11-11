@@ -1,6 +1,23 @@
-# FileVault 2.9
+# FileVault 3.0
 
 Offline Android file organizer with CineVault built in. Same Capacitor + GitHub Actions build as before.
+
+## What changed in 3.0: Reader looks and works like Star Stream's Manhua and Novel pages
+The Reader tab now uses the same layout as Star Stream (cover grid, categories, series page), painted with FileVault's own theme, so every theme and accent color applies. Your files are still opened in place and never copied. Your existing folders, progress and bookmarks are kept.
+
+- **Library**: covers in a grid with two badges on each cover (accent = unread chapters, darker = total chapters). **Manga** and **Novels** tabs on top, then **category tabs** (Default, your own, and a + tab). Your selected tab is remembered per kind.
+- **Search** (magnifier, searches every category), **Filter & sort** (icon turns accent colored when active): has unread / started / completed / favorites only, sort by last read, title, most chapters, date added.
+- **Categories**: + tab or the three-dot menu, Manage categories (add, rename, reorder, delete). Deleting a category never deletes folders, they go back to Default. Included in backups.
+- **Series page** (tap a cover): blurred-cover header, cover, title, author, chapter count, status (Not started / Reading / Completed), category. Action row: **Favorite**, **Category**, **Progress %**, **Add**. Collapsible **synopsis** and **genre chips** (the pencil edits name, synopsis, genres and cover). Chapter list is **newest first**; the sort button in the top bar flips it and remembers your choice. Read chapters show a check, a partly read one shows a progress ring. Each row has a three-dot menu (Mark read / unread, Remove from folder). A floating **Resume / Start** button continues where you stopped.
+- **Novels**: a novel folder holding one book lists that book's **own chapters** (read from the EPUB contents list), so you can jump straight to any chapter. The synopsis and genres are picked up from the EPUB itself; you can overwrite them with the pencil. Row menu: **Mark read up to here** and **Mark this and later chapters unread**. A folder with several books lists the books instead.
+- A chapter you scroll to the end of now counts as read, and the next one becomes the current chapter.
+- The Continue Reading strip, subfolders, bookmarks and the manga and novel readers themselves are unchanged.
+
+### Files
+`www/js/reader2.js` is new (library and series pages). `reader.js` only got small changes (EPUB synopsis/genres, and book info no longer overwrites the saved chapter list). Plus new icons in `index.html`, styles at the end of `css/app.css`, and category backup in `settings.js`.
+
+### "Failed to fetch" when opening a novel
+Book names with an apostrophe (for example "Omniscient Reader's Viewpoint") broke the file address in builds before 2.9. This build keeps the 2.9 fix: addresses are escaped, and if the WebView still refuses to fetch a file, the book is read through the Android plugin instead. If you still see it after installing this version, send the exact toast text and the file size.
 
 ## Build
 1. Upload everything in this folder to a GitHub repo (keep `.github`).
@@ -8,6 +25,7 @@ Offline Android file organizer with CineVault built in. Same Capacitor + GitHub 
 3. Download `filevault-debug-apk`, install the APK, grant "All files access", tap the scan button.
 
 ## What changed in 2.9
+- **"Failed to fetch" when opening a novel or manga**: file addresses now escape characters such as the apostrophe in names like "Reader's Viewpoint", and if the WebView still cannot fetch a file, the Reader reads it through the Android plugin instead (files up to 40 MB; larger files still use streaming).
 - **Reader - novels**: a collection card now keeps its own name. Before, once its cover loaded, a novel collection such as "My Fantasy Novels" was renamed to the title of the first book inside it.
 - **Reader - Continue Reading**: the top of the Reader tab shows **one card per collection** (manga and novels together, most recent first), not one card per chapter. Manga cards read "Manga · 2 chapters recently read" with **Continue Chapter N**; novel cards read "Novels · 3 books" with **Continue reading** and a progress bar. Tap a card to resume exactly where you stopped; the small folder icon opens the collection instead.
 - **Reader - recently opened collections**: sort the folder grid by **Recently read** (default) or **A-Z**. Inside a manga collection the chapter you stopped on is highlighted ("continue here").

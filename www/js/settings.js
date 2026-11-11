@@ -1,5 +1,5 @@
 /* ===== Settings, backup and restore ===== */
-async function makeBackup(){return{v:2,app:'filevault',createdAt:new Date().toISOString(),albums,tags,fileTags,favorites:[...favs],lyrics:await allLyr(),pos,seen:[...seen],epOver,cv:await cineExport(),rdp:rdProg||(await getS('rdp'))||{},rdf:rdFold||(await getS('rdf'))||[],rdb:rdBm||(await getS('rdb'))||{},wlog:await wlogLoad(),plays:await psLoad(),accent:(await getS('accent'))||'',eq:await eqLoad()}}
+async function makeBackup(){return{v:2,app:'filevault',createdAt:new Date().toISOString(),albums,tags,fileTags,favorites:[...favs],lyrics:await allLyr(),pos,seen:[...seen],epOver,cv:await cineExport(),rdp:rdProg||(await getS('rdp'))||{},rdf:rdFold||(await getS('rdf'))||[],rdb:rdBm||(await getS('rdb'))||{},rdc:(typeof rdCats!=='undefined'&&rdCats)||(await getS('rdc'))||[],wlog:await wlogLoad(),plays:await psLoad(),accent:(await getS('accent'))||'',eq:await eqLoad()}}
 async function saveBackup(){
  try{const data=JSON.stringify(await makeBackup());
   const FS=window.Capacitor?.isNativePlatform?.()&&window.Capacitor.Plugins?.Filesystem;
@@ -14,6 +14,7 @@ async function restoreBackup(file){
    if(j.pos){pos={...pos,...j.pos};await savePos(true)}
    if(j.seen){seen=new Set([...seen,...j.seen]);await saveSeen()}if(j.epOver){epOver={...epOver,...j.epOver};await saveOver()}
    if(j.rdf){const have=rdFold||(await getS('rdf'))||[];for(const F of j.rdf)if(!have.some(x=>x.id===F.id))have.push(F);rdFold=have;await setS('rdf',rdFold)}
+   if(Array.isArray(j.rdc)){const have=(typeof rdCats!=='undefined'&&rdCats)||(await getS('rdc'))||[];for(const c of j.rdc)if(!have.some(x=>x.id===c.id))have.push(c);rdCats=have;await setS('rdc',have)}
    if(j.rdp){rdProg={...(rdProg||(await getS('rdp'))||{}),...j.rdp};await setS('rdp',rdProg)}
    if(j.rdb){rdBm={...(rdBm||(await getS('rdb'))||{}),...j.rdb};await setS('rdb',rdBm)}
    if(j.wlog){const cur=await wlogLoad();for(const p in j.wlog)if(!cur[p]||j.wlog[p]>cur[p])cur[p]=j.wlog[p];await setS('wlog',cur)}
