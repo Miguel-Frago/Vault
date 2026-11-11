@@ -1,0 +1,47 @@
+name: Build FileVault APK
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get project files
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install JavaScript packages
+        run: npm install
+      - name: Create Android project
+        run: npx cap add android
+      - name: Generate app icon and splash resources
+        run: npx capacitor-assets generate --android --iconBackgroundColor '#171321' --splashBackgroundColor '#171321'
+      - name: Add FileVault Android plugin and permissions
+        run: node scripts/prepare-android.js
+      - name: Sync Capacitor
+        run: npx cap sync android
+      - name: Use the project's fixed signing key so updates install over the old app
+        run: |
+          mkdir -p ~/.android
+          cp signing/debug.keystore ~/.android/debug.keystore
+      - name: Build debug APK with project Gradle Wrapper
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew assembleDebug --no-daemon
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: filevault-2-4-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
