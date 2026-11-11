@@ -72,7 +72,8 @@ const cardH=(m,i)=>`<div class="card" data-id="${m.id}" style="--d:${Math.min(i,
 
 function renderCine(root){
  clr();
- root.innerHTML=`<header class="hd"><h1>${ic('logo',26)} CineVault</h1>${cvTab=='folders'?`<button class="b" id="nf">${ic('plus',16)} Folder</button>`:cvTab=='movies'?`<button class="b" id="ad">${ic('plus',16)} Add</button>`:''}</header><div class="pad">${cvTabs()}<div id="cbody"></div></div>`;
+ root.innerHTML=`<header class="hd"><h1>${ic('logo',26)} CineVault</h1><button class="i" id="wh" aria-label="Watch history">${ic('clock',22)}</button>${cvTab=='folders'?`<button class="b" id="nf">${ic('plus',16)} Folder</button>`:cvTab=='movies'?`<button class="b" id="ad">${ic('plus',16)} Add</button>`:''}</header><div class="pad">${cvTabs()}<div id="cbody"></div></div>`;
+ $('#wh',root).onclick=watchSheet;
  $('#ctabs',root).onclick=e=>{const t=e.target.closest('[data-t]')?.dataset.t;if(t){cvTab=t;renderCine(root)}};
  if($('#ad',root))$('#ad',root).onclick=()=>cvForm();
  if(cvTab=='stats')cvStats($('#cbody',root));else if(cvTab=='folders')cvFoldersView($('#cbody',root),$('#nf',root));else cvMovieList($('#cbody',root))}

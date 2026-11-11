@@ -31,6 +31,11 @@ async function showLock(mode){
    else if(x==first){await setS('pat',x);fb(1);setTimeout(()=>recStep(mode),550)}
    else{first=null;fb(0);m.textContent='Did not match. Draw a new pattern'}}
   setTimeout(()=>on=0,720)};
+ /* optional fingerprint / face unlock; the pattern always still works */
+ if(h&&!mode&&native&&FV.biometricAuth&&await getS('bio')){
+  const bb=document.createElement('button');bb.className='b2';bb.id='bio';bb.innerHTML=ic('lock',16)+' Use fingerprint / face';$('.lock',el).append(bb);
+  const tryBio=()=>FV.biometricAuth({title:'Unlock FileVault',cancel:'Use pattern'}).then(()=>{fb(1);setTimeout(unlockDone,300)}).catch(()=>{});
+  bb.onclick=tryBio;setTimeout(tryBio,350)}
 }
 
 function recStep(mode){

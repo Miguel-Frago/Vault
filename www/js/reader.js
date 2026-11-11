@@ -37,7 +37,7 @@ class RdZip{
  async dir(){
   const tail=await this.part(Math.max(0,this.size-70000),this.size),dv=new DataView(tail.buffer,tail.byteOffset,tail.byteLength);
   let e=-1;for(let i=tail.length-22;i>=0;i--){if(dv.getUint32(i,true)===0x06054b50){e=i;break}}
-  if(e<0)throw Error('This is not a valid book or comic archive.');
+  if(e<0)throw Error('This is not a ZIP-based archive. Real RAR .cbr files cannot be unpacked yet; convert the file to .cbz (many .cbr files are really ZIP and open fine).');
   let n=dv.getUint16(e+10,true),cdSize=dv.getUint32(e+12,true),cdOff=dv.getUint32(e+16,true);
   if(n===0xFFFF||cdOff===0xFFFFFFFF||cdSize===0xFFFFFFFF){
    const l=e-20;
@@ -119,13 +119,50 @@ async function rdParseEpub(zip){
    for(const m of x.matchAll(/<navPoint\b[\s\S]*?<text[^>]*>([\s\S]*?)<\/text>[\s\S]*?<content\b[^>]*src\s*=\s*["']([^"']*)["']/gi))addToc(ncx.path,rdStrip(m[1]),m[2])}catch(e){}}}
  if(!toc.length)toc=spine.map((s,i)=>({title:'Section '+(i+1),idx:i,frag:''}));
  return{zip,title:meta('title'),author:meta('creator'),cover,spine,toc,pathIdx}}
-const rdOpenEpub=async path=>rdParseEpub(await RdZip.open(path));
+const rdOpenEpub=async path=>rdExt(path)==='txt'?rdOpenTxt(path):rdParseEpub(await RdZip.open(path));
+/* ---------- TXT books: split into chapters on the fly, so they read like an EPUB ---------- */
+const rdExt=p=>((String(p).match(/\.([a-z0-9]+)$/i)||[])[1]||'').toLowerCase();
+const RD_HEAD=/^\s*(?:(?:chapter|chap\.?|prologue|epilogue|part|volume|book|interlude|afterword)\b|第[0-9一二三四五六七八九十百千零〇两]+[章节話话回卷]).{0,70}$/i;
+async function rdOpenTxt(path){
+ const buf=await(await fetch(fileUrl(path))).arrayBuffer();
+ let t;try{t=new TextDecoder('utf-8',{fatal:true}).decode(buf)}catch(e){t=new TextDecoder('windows-1252').decode(buf)}
+ t=t.replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n');
+ const lines=t.split('\n'),marks=[];
+ lines.forEach((l,i)=>{if(l.length<=80&&RD_HEAD.test(l)&&(i===0||!lines[i-1].trim()))marks.push(i)});
+ let chs=[];
+ if(marks.length>=2){
+  if(marks[0]>0&&lines.slice(0,marks[0]).join('').trim().length>200)chs.push({title:'Beginning',text:lines.slice(0,marks[0]).join('\n')});
+  marks.forEach((m,k)=>chs.push({title:lines[m].trim(),text:lines.slice(m+1,k+1<marks.length?marks[k+1]:lines.length).join('\n')}))}
+ else{
+  const paras=t.split(/\n\s*\n/);let cur=[],len=0;
+  const flush=()=>{if(cur.length)chs.push({title:'Part '+(chs.length+1),text:cur.join('\n\n')});cur=[];len=0};
+  for(const p of paras){cur.push(p);len+=p.length;if(len>12000)flush()}flush();
+  if(!chs.length)chs.push({title:'Text',text:t})}
+ const blank=lines.filter(l=>!l.trim()).length>lines.length*.2;
+ const html=c=>{const ps=blank?c.text.split(/\n\s*\n/).map(p=>p.split('\n').map(x=>x.trim()).filter(Boolean).join(' ')):c.text.split('\n').map(x=>x.trim());
+  return `<html xmlns="http://www.w3.org/1999/xhtml"><body><h2>${esc(c.title)}</h2>${ps.filter(Boolean).map(p=>`<p>${esc(p)}</p>`).join('')}</body></html>`};
+ const spine=chs.map((c,i)=>({path:'t'+i+'.xhtml',type:'application/xhtml+xml'})),map=new Map(spine.map((s,i)=>[s.path,html(chs[i])]));
+ const f=byPath.get(path);
+ return{zip:{find:()=>null,text:async n=>map.get(n)||'',blob:async()=>{throw Error('No images in a text file.')}},
+  title:f?f.name.replace(/\.txt$/i,'').replace(/_+/g,' '):'',author:'',cover:'',spine,toc:chs.map((c,i)=>({title:c.title,idx:i,frag:''})),pathIdx:new Map(spine.map((s,i)=>[s.path,i]))}}
+
+/* ---------- bookmarks: saved spots inside a book or a manga series ---------- */
+let rdBm=null;
+function rdBookmarks(el,key,mk,jump){
+ const list=()=>rdBm[key]||(rdBm[key]=[]);
+ const draw=()=>{const L=list();return `<div class="rdph2"><b>Bookmarks</b><span class="grow"></span><button class="b2" id="bka">${ic('plus',14)} Add here</button><button class="i" data-c aria-label="Close">${ic('close',20)}</button></div><div class="rdlist">${L.length?L.map((b,i)=>`<div class="rch" data-i="${i}"><div class="grow"><b>${esc(b.label)}</b><div class="mu">${new Date(b.at).toLocaleDateString()}</div></div><button class="i" data-d="${i}" aria-label="Delete bookmark">${ic('trash',18)}</button></div>`).join(''):'<p class="mu" style="padding:10px">No bookmarks yet. Tap “Add here” to save this spot.</p>'}</div>`};
+ const p=rdPanel(el,draw());
+ p.onclick=async e=>{e.stopPropagation();if(e.target===p||e.target.closest('[data-c]'))return p.remove();
+  if(e.target.closest('#bka')){list().push({id:uid(),...mk(),at:Date.now()});await setS('rdb',rdBm);$('.rdpi',p).innerHTML=draw();toast('Bookmark saved');return}
+  const d=e.target.closest('[data-d]');if(d){list().splice(+d.dataset.d,1);await setS('rdb',rdBm);$('.rdpi',p).innerHTML=draw();return}
+  const r=e.target.closest('[data-i]');if(r){const b=list()[+r.dataset.i];p.remove();jump(b)}}}
+
 
 /* ---------- state: progress, settings, titles ---------- */
 let rdProg=null,rdSet=null,rdMeta=null,rdFold=null;
 async function rdLoad(){
  if(rdProg)return;
- rdProg=(await getS('rdp'))||{};rdMeta=(await getS('rdm'))||{};rdFold=(await getS('rdf'))||[];
+ rdProg=(await getS('rdp'))||{};rdMeta=(await getS('rdm'))||{};rdFold=(await getS('rdf'))||[];rdBm=(await getS('rdb'))||{};
  rdSet={mode:'web',fit:'screen',nsize:19,nline:1.7,nfont:'serif',ntheme:'app',...((await getS('rds'))||{})}}
 let rdPT=0,rdMT=0;
 const rdSave=()=>{clearTimeout(rdPT);rdPT=setTimeout(()=>setS('rdp',rdProg).catch(()=>{}),500)};
@@ -135,16 +172,16 @@ const rdSaveF=()=>setS('rdf',rdFold).catch(()=>{});
 
 /* ---------- naming helpers ---------- */
 function rdName(n){
- const base=String(n).replace(/\.(cbz|epub)$/i,'').replace(/_+/g,' ').trim();
+ const base=String(n).replace(/\.(cbz|cbr|epub|txt|pdf)$/i,'').replace(/_+/g,' ').trim();
  const m=base.match(/(?:chapter|chap|ch|episode|ep)\.?\s*#?0*(\d+(?:\.\d+)?)/i)||base.match(/(?:^|[\s\-#])0*(\d+(?:\.\d+)?)\s*$/);
  return{num:m?Number(m[1]):null,series:m?base.slice(0,m.index).replace(/[\s\-–—:]+$/,'').trim():base}}
-const rdTitle=f=>(rdMeta&&rdMeta[f.path]&&rdMeta[f.path].t)||f.name.replace(/\.epub$/i,'').replace(/_+/g,' ');
-const rdChLabel=f=>{const n=rdName(f.name).num;return n!=null?'Chapter '+n:f.name.replace(/\.cbz$/i,'')};
+const rdTitle=f=>(rdMeta&&rdMeta[f.path]&&rdMeta[f.path].t)||f.name.replace(/\.(epub|txt|pdf)$/i,'').replace(/_+/g,' ');
+const rdChLabel=f=>{const n=rdName(f.name).num;return n!=null?'Chapter '+n:f.name.replace(/\.(cbz|cbr)$/i,'')};
 const rdPct=p=>{if(!p)return 0;if(p.done)return 100;if(p.c!=null&&p.n)return Math.min(99,Math.round((p.c+(p.r||0))/p.n*100));if(p.p!=null&&p.n)return Math.min(99,Math.round((p.p+1)/p.n*100));return 0};
 
 /* ---------- your folders (like Albums): you decide what goes where ----------
    rdFold = [{id, kind:'manga'|'novel', name, paths:[…], folders:[{id,name,paths:[…]}]}] */
-const rdKindExt={manga:['cbz'],novel:['epub']};
+const rdKindExt={manga:['cbz','cbr'],novel:['epub','txt','pdf']};
 const rdAllPaths=F=>[...F.paths,...F.folders.flatMap(s=>s.paths)];
 function rdSortPaths(kind,paths){
  const L=paths.filter(p=>byPath.has(p)).map(p=>byPath.get(p));
@@ -178,8 +215,8 @@ async function rdCover(f){
  try{const rec=await thumbGet(key);if(rec&&rec.blob){const u=URL.createObjectURL(rec.blob);memThumb(key,u);return u}}catch(e){}
  let blob=null;
  try{
-  if(f.extension==='cbz'){const z=await RdZip.open(f.path),pg=z.images()[0];if(pg)blob=await z.blob(pg)}
-  else{const bk=await rdOpenEpub(f.path);rdMeta[f.path]={t:bk.title||'',a:bk.author||''};rdMetaSave();if(bk.cover)blob=await bk.zip.blob(bk.cover)}
+  if(f.extension==='cbz'||f.extension==='cbr'){const z=await RdZip.open(f.path),pg=z.images()[0];if(pg)blob=await z.blob(pg)}
+  else if(f.extension==='epub'){const bk=await rdOpenEpub(f.path);rdMeta[f.path]={t:bk.title||'',a:bk.author||''};rdMetaSave();if(bk.cover)blob=await bk.zip.blob(bk.cover)}
   if(blob)blob=await shrink(blob,360)}
  catch(e){return null}
  if(!blob)return null;
@@ -195,22 +232,22 @@ function rdPump(){while(rdCovBusy<2&&rdCovQ.length){const j=rdCovQ.pop();rdCovBu
 const rdWatch=root=>$$('.rcv[data-cp]:not([data-h])',root).forEach(el=>{el.dataset.h='1';rdIO.observe(el)});
 
 /* ---------- Reader tab: your manga folders and novel folders ---------- */
-const rd={tab:'manga',q:''};
+const rd={tab:'manga',q:'',fav:false};
 async function renderReader(root){
  await rdLoad();
  root.innerHTML=`<header class="hd"><h1>${ic('book',26)} Reader</h1><button class="b" id="rnf">${ic('plus',16)} Folder</button></header><div class="pad">
-  <p class="mu">Make a folder for each manga or novel, then add your .cbz / .epub files to it. Your files are never moved or copied.</p>
-  <div class="tabs" id="rtabs"><button data-k="manga" class="${rd.tab==='manga'?'on':''}">${ic('image',16)} Manga</button><button data-k="novel" class="${rd.tab==='novel'?'on':''}">${ic('book',16)} Novels</button></div>
+  <p class="mu">Make a folder for each manga or novel, then add your .cbz / .cbr comics or .epub / .txt / .pdf books to it. Your files are never moved or copied.</p>
+  <div class="tabs" id="rtabs"><button data-k="manga" class="${rd.tab==='manga'?'on':''}">${ic('image',16)} Manga</button><button data-k="novel" class="${rd.tab==='novel'?'on':''}">${ic('book',16)} Novels</button><button data-f="1" class="${rd.fav?'on':''}">${ic('heart',16)} Favorites</button></div>
   <input id="rq" type="search" placeholder="Search folders…" value="${esc(rd.q)}" autocomplete="off">
   <div id="rcw"></div><div id="rl"></div></div>`;
- $('#rtabs',root).onclick=e=>{const b=e.target.closest('[data-k]');if(!b)return;rd.tab=b.dataset.k;rd.q='';renderReader(root)};
+ $('#rtabs',root).onclick=e=>{const fb=e.target.closest('[data-f]');if(fb){rd.fav=!rd.fav;renderReader(root);return}const b=e.target.closest('[data-k]');if(!b)return;rd.tab=b.dataset.k;rd.q='';renderReader(root)};
  $('#rq',root).oninput=e=>{rd.q=e.target.value;rdDraw(root)};
  $('#rnf',root).onclick=()=>rdNewFolder(rd.tab,F=>{rdFolderSheet(F.id);setTimeout(()=>rdAddFiles(F.id,'',()=>{const t=topLayer();if(t&&t.refresh)t.refresh()}),250)});
  rdDraw(root)}
-function rdCard(o){return `<article class="rc" data-k="${esc(o.key)}"><div class="rcv" ${o.cover?`data-cp="${esc(o.cover)}"`:''}>${ic(o.icon,30)}</div>${o.badge?`<span class="rcb">${esc(o.badge)}</span>`:''}<div class="rct">${esc(o.title)}</div><div class="rcs">${esc(o.sub)}</div>${o.pct?`<div class="rcp"><i style="width:${o.pct}%"></i></div>`:''}</article>`}
+function rdCard(o){return `<article class="rc" data-k="${esc(o.key)}"><div class="rcv" ${o.cover&&!o.img?`data-cp="${esc(o.cover)}"`:''}>${o.img?`<img alt="" src="${o.img}">`:ic(o.icon,30)}</div>${o.badge?`<span class="rcb">${esc(o.badge)}</span>`:''}<div class="rct">${esc(o.title)}</div><div class="rcs">${esc(o.sub)}</div>${o.pct?`<div class="rcp"><i style="width:${o.pct}%"></i></div>`:''}</article>`}
 function rdDraw(root){
  const q=rd.q.trim().toLowerCase(),L=$('#rl',root),CW=$('#rcw',root),kind=rd.tab,manga=kind==='manga';
- const mine=(rdFold||[]).filter(F=>F.kind===kind).sort((a,b)=>rdNat(a.name,b.name)),list=q?mine.filter(F=>F.name.toLowerCase().includes(q)):mine;
+ const mine=(rdFold||[]).filter(F=>F.kind===kind).sort((a,b)=>rdNat(a.name,b.name)),list=(q?mine.filter(F=>F.name.toLowerCase().includes(q)):mine).filter(F=>!rd.fav||F.fav);
  // Resume is intentionally shown inside each collection folder, not as separate
  // chapter/book cards on the Reader landing page. This prevents one manga series
  // from appearing multiple times in Continue Reading.
@@ -219,7 +256,7 @@ function rdDraw(root){
  else if(!list.length)L.innerHTML=`<div class="empty">No folder matches “${esc(rd.q)}”.</div>`;
  else L.innerHTML=`<h3 class="rh">${manga?'Manga':'Novels'} <span class="mu">· ${list.length} folder${list.length>1?'s':''}</span></h3><div class="rgrid">${list.map(F=>{
    const flat=rdFlat(F),st=rdResume(flat),n=flat.length,unread=n-st.read;
-   return rdCard({key:'f|'+F.id,cover:flat[0]?flat[0].path:'',icon:'folder',title:F.name,sub:n+(manga?' chapter':' book')+(n===1?'':'s')+(F.folders.length?' · '+F.folders.length+' sub':''),badge:manga&&unread>0?String(unread):'',pct:n?Math.round(st.read/n*100):0})}).join('')}</div>`;
+   return rdCard({key:'f|'+F.id,cover:flat[0]?flat[0].path:'',icon:'folder',img:F.cover||'',title:(F.fav?'♥ ':'')+F.name,sub:n+(manga?' chapter':' book')+(n===1?'':'s')+(F.folders.length?' · '+F.folders.length+' sub':''),badge:manga&&unread>0?String(unread):'',pct:n?Math.round(st.read/n*100):0})}).join('')}</div>`;
  L.onclick=CW.onclick=e=>{const c=e.target.closest('.rc');if(!c)return;const k=c.dataset.k;
   if(k.startsWith('f|'))return rdFolderSheet(k.slice(2));
   const p=k.slice(2);
@@ -256,7 +293,7 @@ function rdPick({title,exts,exclude,onDone}){
 function rdAddFiles(fid,sid,done){
  const F=rdFold.find(x=>x.id===fid);if(!F)return;
  if(!files.length)return toast('Scan your phone first (Library tab) to find your files.');
- rdPick({title:F.kind==='manga'?'Add .cbz chapters':'Add .epub books',exts:rdKindExt[F.kind],exclude:new Set(rdAllPaths(F)),onDone:async ps=>{
+ rdPick({title:F.kind==='manga'?'Add .cbz / .cbr chapters':'Add books (.epub, .txt, .pdf)',exts:rdKindExt[F.kind],exclude:new Set(rdAllPaths(F)),onDone:async ps=>{
   if(!ps.length)return;const tgt=sid?F.folders.find(s=>s.id===sid):F;if(!tgt)return;
   tgt.paths.push(...ps);await rdSaveF();toast(ps.length+' added');done&&done()}})}
 
@@ -283,9 +320,10 @@ function rdFolderSheet(fid){
   $('[data-x]',el).onclick=()=>el.close();
   $('#rfe',el).onclick=()=>{edit=!edit;el.refresh()};
   $('#rfm',el).onclick=()=>{
-   const m=modal('Folder options',`<button class="b2" id="fo1" style="width:100%;margin:4px 0">New subfolder</button><button class="b2" id="fo2" style="width:100%;margin:4px 0">Rename folder</button><button class="b2" id="fo3" style="width:100%;margin:4px 0;color:var(--dn)">Delete folder</button>`);
+   const m=modal('Folder options',`<button class="b2" id="fo1" style="width:100%;margin:4px 0">New subfolder</button><button class="b2" id="fo2" style="width:100%;margin:4px 0">Edit name, description, cover</button><button class="b2" id="fo4" style="width:100%;margin:4px 0">${F.fav?'Remove from favorites':'Add to favorites'}</button><button class="b2" id="fo3" style="width:100%;margin:4px 0;color:var(--dn)">Delete folder</button>`);
    $('#fo1',m.body).onclick=()=>{m.close();renameModal('New subfolder','',async v=>{if(F.folders.some(s=>s.name.toLowerCase()===v.toLowerCase()))return toast('A subfolder with that name exists.');F.folders.push({id:uid(),name:v,paths:[]});await rdSaveF();el.refresh()})};
-   $('#fo2',m.body).onclick=()=>{m.close();renameModal('Rename folder',F.name,async v=>{F.name=v;await rdSaveF();el.refresh()})};
+   $('#fo2',m.body).onclick=()=>{m.close();detailsModal(F,'Folder details',()=>el.refresh(),rdSaveF)};
+   $('#fo4',m.body).onclick=async()=>{F.fav=!F.fav;await rdSaveF();m.close();toast(F.fav?'Added to favorites':'Removed from favorites');el.refresh()};
    $('#fo3',m.body).onclick=()=>{m.close();deleteModal('Delete this folder?',async()=>{rdFold=rdFold.filter(x=>x.id!==F.id);await rdSaveF();el.close()})}};
   el.onclick=e=>{
    if(e.target.closest('#rfe,#rfm,[data-x]'))return;
@@ -297,16 +335,18 @@ function rdFolderSheet(fid){
    if(e.target.closest('#rsr'))return manga?openManga(flat,st.idx,F.name):openNovel(nr.file.path);
    const row=e.target.closest('[data-p]');if(!row||edit)return;
    if(manga)openManga(flat,Math.max(0,idxOf(row.dataset.p)),F.name);else openNovel(row.dataset.p)};
+  if(F.cover)$$('.rsc',el).forEach(x=>{x.removeAttribute('data-cp');x.innerHTML=`<img alt="" src="${F.cover}">`});
+  if(F.description)$('.pad',el).insertAdjacentHTML('afterbegin',`<p class="mu" style="white-space:pre-wrap">${esc(F.description)}</p>`);
   rdWatch(el)},()=>{if(curTab==='reader')rdDraw($('#page'))})}
 
 /* open a .cbz / .epub from anywhere (for example straight from the Library) */
 async function openReader(path){
  await rdLoad();
  const f=byPath.get(path);if(!f)return toast('File not found. Scan again to refresh your library.');
- if(f.extension==='epub')return openNovel(path);
+ if(['epub','txt','pdf'].includes(f.extension))return openNovel(path);
  const F=rdFolderOf(path,'manga');
  if(F){const flat=rdFlat(F);return openManga(flat,Math.max(0,flat.findIndex(x=>x.path===path)),F.name)}
- return openManga([f],0,f.name.replace(/\.cbz$/i,''))}
+ return openManga([f],0,f.name.replace(/\.(cbz|cbr)$/i,''))}
 
 /* ---------- shared reader chrome ---------- */
 function rdOverlay(cls){
@@ -317,12 +357,12 @@ const rdPanel=(el,html)=>{const old=$('.rdpn',el);if(old)old.remove();const p=do
 async function openManga(list,startIdx,seriesTitle){
  await rdLoad();
  const el=rdOverlay('mg');
- el.innerHTML=`<div class="rdtop"><button class="i" data-x aria-label="Back">${ic('back',24)}</button><div class="rdtt"><b id="rdt1"></b><span id="rdt2"></span></div><button class="i" id="rdl" aria-label="Chapters">${ic('list',22)}</button><button class="i" id="rds" aria-label="Reader settings">${ic('sliders',22)}</button></div>
+ el.innerHTML=`<div class="rdtop"><button class="i" data-x aria-label="Back">${ic('back',24)}</button><div class="rdtt"><b id="rdt1"></b><span id="rdt2"></span></div><button class="i" id="rdk" aria-label="Bookmarks">${ic('bookmark',22)}</button><button class="i" id="rdl" aria-label="Chapters">${ic('list',22)}</button><button class="i" id="rds" aria-label="Reader settings">${ic('sliders',22)}</button></div>
   <div class="rdb" id="rdb"></div>
   <div class="rdbot"><button class="i" id="rdp" aria-label="Previous chapter">${ic('prev',20,'fl')}</button><span class="rdn1" id="rdc">–</span><input type="range" id="rdr" min="1" max="1" value="1" aria-label="Page"><span class="rdn1" id="rdm">–</span><button class="i" id="rdx" aria-label="Next chapter">${ic('next',20,'fl')}</button></div>`;
  let idx=startIdx,zip=null,pages=[],cur=0,dead=false,wraps=[],pio=null,cio=null,loadTok=0,urls=new Map(),jump=false;
  const b=$('#rdb',el),slider=$('#rdr',el);
- const F=()=>list[idx],label=()=>{const c=rdName(F().name);return c.num!=null?'Chapter '+c.num:F().name.replace(/\.cbz$/i,'')};
+ const F=()=>list[idx],label=()=>{const c=rdName(F().name);return c.num!=null?'Chapter '+c.num:F().name.replace(/\.(cbz|cbr)$/i,'')};
  const bars=on=>el.classList.toggle('bh',on===undefined?!el.classList.contains('bh'):!on);
  const freeUrl=i=>{const u=urls.get(i);if(u&&u.url){URL.revokeObjectURL(u.url)}urls.delete(i)};
  const getUrl=i=>{
@@ -417,6 +457,7 @@ async function openManga(list,startIdx,seriesTitle){
  $('[data-x]',el).onclick=()=>closeEl(el);
  $('#rdl',el).onclick=chapters;$('#rds',el).onclick=settings;
  $('#rdp',el).onclick=()=>loadChapter(idx-1);$('#rdx',el).onclick=()=>loadChapter(idx+1);
+ $('#rdk',el).onclick=()=>rdBookmarks(el,'m|'+(seriesTitle||list[0].path),()=>({label:label()+' · page '+(cur+1),f:F().path,p:cur}),b=>{const k=list.findIndex(x=>x.path===b.f);if(k<0)return toast('That chapter is no longer in this folder.');rdProg[b.f]={...(rdProg[b.f]||{}),p:b.p,done:false,at:Date.now()};loadChapter(k)});
  slider.oninput=()=>{const i=+slider.value-1;$('#rdc',el).textContent=i+1;if(rdSet.mode==='web'){if(wraps[i]){jump=true;loadPage(i);wraps[i].scrollIntoView();setTimeout(()=>jump=false,300);cur=i;ui()}}else showPage(i)};
  pushLayer(el,()=>{dead=true;if(pio)pio.disconnect();if(cio)cio.disconnect();for(const k of[...urls.keys()])freeUrl(k);rdSave();if(curTab==='reader')rdDraw($('#page'))});
  loadChapter(idx)}
@@ -447,12 +488,13 @@ async function rdChapterNodes(bk,i){
 async function openNovel(path,startCh,startRatio){
  await rdLoad();
  const f=byPath.get(path);
+ if(rdExt(path)==='pdf'){rdProg[path]={...(rdProg[path]||{}),at:Date.now()};rdSave();return openFile(path)}
  let bk;
  try{toast('Opening book…');bk=await rdOpenEpub(path)}catch(e){return toast(e.message||'Could not open this book.')}
  rdMeta[path]={t:bk.title||'',a:bk.author||''};rdMetaSave();
  const el=rdOverlay('nv');
  el.dataset.nt=rdSet.ntheme;
- el.innerHTML=`<div class="rdtop"><button class="i" data-x aria-label="Back">${ic('back',24)}</button><div class="rdtt"><b id="rdt1">${esc(bk.title||(f?f.name:''))}</b><span id="rdt2"></span></div><button class="i" id="rdl" aria-label="Contents">${ic('list',22)}</button><button class="i" id="rds" aria-label="Text settings">${ic('textsize',22)}</button></div>
+ el.innerHTML=`<div class="rdtop"><button class="i" data-x aria-label="Back">${ic('back',24)}</button><div class="rdtt"><b id="rdt1">${esc(bk.title||(f?f.name:''))}</b><span id="rdt2"></span></div><button class="i" id="rdk" aria-label="Bookmarks">${ic('bookmark',22)}</button><button class="i" id="rdl" aria-label="Contents">${ic('list',22)}</button><button class="i" id="rds" aria-label="Text settings">${ic('textsize',22)}</button></div>
   <div class="rdsc" id="rdsc"><article class="rdn" id="rdn"></article><div class="rdnx" id="rdnx"></div></div>
   <div class="rdbot"><button class="i" id="rdp" aria-label="Previous chapter">${ic('prev',20,'fl')}</button><span class="rdn1" id="rdc">0%</span><input type="range" id="rdr" min="0" max="1000" value="0" aria-label="Position in chapter"><span class="rdn1" id="rdm">–</span><button class="i" id="rdx" aria-label="Next chapter">${ic('next',20,'fl')}</button></div>`;
  const sc=$('#rdsc',el),art=$('#rdn',el),nx=$('#rdnx',el),slider=$('#rdr',el);
@@ -495,6 +537,7 @@ async function openNovel(path,startCh,startRatio){
  slider.oninput=()=>{touched=true;setScroll(slider.value/1000)};
  $('[data-x]',el).onclick=()=>closeEl(el);
  $('#rdp',el).onclick=()=>loadCh(ci-1,0);$('#rdx',el).onclick=()=>loadCh(ci+1,0);
+ $('#rdk',el).onclick=()=>rdBookmarks(el,'n|'+path,()=>({label:chTitle(ci)+' · '+Math.round(ratio()*100)+'%',c:ci,r:ratio()}),b=>loadCh(b.c,b.r));
  $('#rdl',el).onclick=()=>{
   let curK=0;bk.toc.forEach((t,k)=>{if(t.idx<=ci)curK=k});
   const p=rdPanel(el,`<div class="rdph2"><b>Contents</b><span class="grow"></span><button class="b2" id="rtop">Top</button><button class="b2" id="rcur">Current</button><button class="i" data-c aria-label="Close">${ic('close',20)}</button></div><div class="rdlist" id="rdlist">${bk.toc.map((t,k)=>`<div class="rch ${k===curK?'on':''}" data-k="${k}"><div class="grow"><b>${esc(t.title)}</b></div></div>`).join('')}</div>`);

@@ -59,7 +59,7 @@ const RES_MIN=d=>d&&d<60?1.5:5,RES_END=d=>d?Math.min(10,Math.max(2,d*.08)):10,re
 let posT=0;const savePos=(now)=>{clearTimeout(posT);if(now)return setS('pos',pos);posT=setTimeout(()=>setS('pos',pos),400)};
 const setFiles=list=>{showsCache=null;files=list;byPath=new Map(list.map(f=>[f.path,f]))};
 const saveSeen=()=>setS('seen',[...seen]),saveOver=()=>{showsCache=null;return setS('epOver',epOver)};
-const markSeen=p=>{if(!seen.has(p)){seen.add(p);saveSeen()}};
+const markSeen=p=>{if(!seen.has(p)){seen.add(p);saveSeen()}if(typeof wlogSet==='function')wlogSet(p)};
 const ftype=p=>byPath.get(p)?.type;
 
 function normAlbums(){

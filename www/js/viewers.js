@@ -10,7 +10,7 @@ async function openFile(path,ctx){
   if(f.type==='videos')return playVideo(path,{title:f.name});
   if(f.type==='photos'&&IMG_EXT.has(ext)){const l=(ctx||[f]).filter(x=>x.type==='photos'&&IMG_EXT.has(x.extension));const i=l.findIndex(x=>x.path===path);return photoViewer(l.length&&i>=0?l:[f],Math.max(0,i))}
   if(f.type==='music'){const l=(ctx||[f]).filter(x=>x.type==='music'),i=l.findIndex(x=>x.path===path);return playQueue(l.length&&i>=0?l:[f],Math.max(0,i),true)}
-  if(ext==='cbz'||ext==='epub')return openReader(path);
+  if(ext==='cbz'||ext==='cbr'||ext==='epub')return openReader(path);
   if(ext==='pdf')return viewerSheet(f,pdfFill);
   if(TXT_EXT.has(ext))return viewerSheet(f,textFill);
   await FV.openFile({path});

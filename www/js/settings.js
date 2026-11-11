@@ -1,5 +1,5 @@
 /* ===== Settings, backup and restore ===== */
-async function makeBackup(){return{v:2,app:'filevault',createdAt:new Date().toISOString(),albums,tags,fileTags,favorites:[...favs],lyrics:await allLyr(),pos,seen:[...seen],epOver,cv:await cineExport(),rdp:rdProg||(await getS('rdp'))||{},rdf:rdFold||(await getS('rdf'))||[],plays:await psLoad(),accent:(await getS('accent'))||'',eq:await eqLoad()}}
+async function makeBackup(){return{v:2,app:'filevault',createdAt:new Date().toISOString(),albums,tags,fileTags,favorites:[...favs],lyrics:await allLyr(),pos,seen:[...seen],epOver,cv:await cineExport(),rdp:rdProg||(await getS('rdp'))||{},rdf:rdFold||(await getS('rdf'))||[],rdb:rdBm||(await getS('rdb'))||{},wlog:await wlogLoad(),plays:await psLoad(),accent:(await getS('accent'))||'',eq:await eqLoad()}}
 async function saveBackup(){
  try{const data=JSON.stringify(await makeBackup());
   const FS=window.Capacitor?.isNativePlatform?.()&&window.Capacitor.Plugins?.Filesystem;
@@ -15,6 +15,8 @@ async function restoreBackup(file){
    if(j.seen){seen=new Set([...seen,...j.seen]);await saveSeen()}if(j.epOver){epOver={...epOver,...j.epOver};await saveOver()}
    if(j.rdf){const have=rdFold||(await getS('rdf'))||[];for(const F of j.rdf)if(!have.some(x=>x.id===F.id))have.push(F);rdFold=have;await setS('rdf',rdFold)}
    if(j.rdp){rdProg={...(rdProg||(await getS('rdp'))||{}),...j.rdp};await setS('rdp',rdProg)}
+   if(j.rdb){rdBm={...(rdBm||(await getS('rdb'))||{}),...j.rdb};await setS('rdb',rdBm)}
+   if(j.wlog){const cur=await wlogLoad();for(const p in j.wlog)if(!cur[p]||j.wlog[p]>cur[p])cur[p]=j.wlog[p];await setS('wlog',cur)}
    if(j.plays){const cur=await psLoad();for(const p in j.plays){const a=cur[p],b=j.plays[p];if(!a||(b.n||0)>(a.n||0))cur[p]=b}await setS('plays',cur)}
    if(j.accent){applyAccent(j.accent);await setS('accent',j.accent)}
    if(j.eq&&j.eq.levels){eqSet=j.eq;await setS('eq',eqSet);eqPushed=false}
@@ -28,11 +30,12 @@ function renderSettings(root){
  root.innerHTML=`<header class="hd"><h1>${ic('sliders',26)} Settings</h1></header><div class="pad">
  <div class="card2"><h3>Theme</h3><div class="sws">${THEMES.map(([k,n,a,b])=>`<button class="sw ${curTheme()==k?'sel':''}" data-th="${k}" style="background:linear-gradient(135deg,${b} 50%,${a} 50%)"><span>${n}</span></button>`).join('')}</div></div>
  <div class="card2"><h3>Accent color</h3><p class="mu">Replaces the theme's highlight color. Choosing a theme above resets it.</p><div class="sws acs">${ACCENTS.map(c=>`<button class="ac" data-ac="${c}" aria-label="Accent ${c}" style="background:${c}"></button>`).join('')}<label class="ac cu" aria-label="Custom accent color"><input type="color" id="acc" value="${getComputedStyle(document.documentElement).getPropertyValue('--ac').trim()||'#e8b04a'}"></label></div><div class="row"><button class="b2" id="acr">Back to theme color</button></div></div>
- <div class="card2"><h3>Tools</h3><div class="row" style="flex-wrap:wrap"><button class="b2" id="gso">${ic('search',16)} Search everything</button><button class="b2" id="sto">${ic('grid',16)} Storage dashboard</button><button class="b2" id="mhs">${ic('music',16)} Music history</button><button class="b2" id="eqs">${ic('sliders',16)} Equalizer</button></div></div>
- <div class="card2"><h3>About this build</h3><div class="mu">FileVault 2.7 · sleep timer, equalizer, music history, search everything, storage dashboard, accent colors</div></div>
+ <div class="card2"><h3>Tools</h3><div class="row" style="flex-wrap:wrap"><button class="b2" id="gso">${ic('search',16)} Search everything</button><button class="b2" id="sto">${ic('grid',16)} Storage dashboard</button><button class="b2" id="mhs">${ic('music',16)} Music history</button><button class="b2" id="wts">${ic('clock',16)} Watch history</button><button class="b2" id="eqs">${ic('sliders',16)} Equalizer</button></div></div>
+ <div class="card2"><h3>About this build</h3><div class="mu">FileVault 2.8 · albums (nesting, covers, sort), Reader (TXT, PDF, CBR, bookmarks, covers), watch history, biometric unlock, sleep timer, equalizer, search, storage</div></div>
  <div class="card2"><h3>Music notification</h3><p class="mu" id="mns">Checking…</p><div class="row"><button class="b2" id="mnn">Notification settings</button><button class="b2" id="mnb">App &amp; battery settings</button><button class="b2" id="mnr">Check again</button><button class="b2" id="mnt">Send test notification</button></div></div>
  <div class="card2"><h3>Lock</h3><div class="row"><button class="b2" id="lk">${ic('lock',16)} Lock now</button><button class="b2" id="cp">Change pattern</button></div>
-  <label class="row"><input type="checkbox" id="al" style="width:auto"> Auto-lock after leaving the app</label><label class="row"><input type="checkbox" id="hl" style="width:auto"> Hide the pattern line while drawing</label></div>
+  <label class="row"><input type="checkbox" id="al" style="width:auto"> Auto-lock after leaving the app</label><label class="row"><input type="checkbox" id="hl" style="width:auto"> Hide the pattern line while drawing</label>
+  <label class="row"><input type="checkbox" id="bio" style="width:auto"> Unlock with fingerprint or face (pattern still works)</label></div>
  <div class="card2"><h3>Backup &amp; restore</h3><p class="mu">Saves albums, subfolders, tags, favorites, lyrics, video resume points and your CineVault shelf (posters, cast, notes, links). Your real files are never included, so the backup stays small.</p>
   <div class="row"><button class="b" id="ex">Save backup</button></div><label class="mu">Restore a FileVault backup, or import a backup from the old CineVault app</label><input type="file" id="im" accept=".json,application/json"></div>
  <div class="card2"><h3>Storage access</h3><p class="mu">Android needs “All files access” to let FileVault list your files. Nothing is copied or uploaded.</p><button class="b2" id="pm">Open storage permission settings</button></div>
@@ -55,8 +58,12 @@ function renderSettings(root){
  $('.acs',root).onclick=async e=>{const b=e.target.closest('[data-ac]');if(!b)return;applyAccent(b.dataset.ac);await setS('accent',b.dataset.ac)};
  $('#acc',root).oninput=e=>applyAccent(e.target.value);$('#acc',root).onchange=e=>setS('accent',e.target.value);
  $('#acr',root).onclick=async()=>{applyAccent(null);await setS('accent','');toast('Using the theme color')};
- $('#gso',root).onclick=openSearch;$('#sto',root).onclick=storageSheet;$('#mhs',root).onclick=()=>historySheet('recent');$('#eqs',root).onclick=eqModal;
+ $('#gso',root).onclick=openSearch;$('#sto',root).onclick=storageSheet;$('#mhs',root).onclick=()=>historySheet('recent');$('#wts',root).onclick=watchSheet;$('#eqs',root).onclick=eqModal;
  $('#lk',root).onclick=()=>showLock();$('#cp',root).onclick=()=>showLock('set');
+ getS('bio').then(v=>$('#bio',root).checked=!!v);
+ $('#bio',root).onchange=async e=>{const c=e.target;if(!c.checked){await setS('bio',0);return}
+  if(!native||!FV.biometricAuth){c.checked=false;return toast('Available in the Android app.')}
+  try{await FV.biometricAuth({title:'Turn on biometric unlock',cancel:'Cancel'});await setS('bio',1);toast('Biometric unlock is on. Your pattern still works.')}catch(err){c.checked=false;toast('Could not turn it on: '+(err.message||err))}};
  getS('al').then(v=>$('#al',root).checked=v!==0);getS('hl').then(v=>$('#hl',root).checked=!!v);
  $('#al',root).onchange=e=>setS('al',e.target.checked?1:0);$('#hl',root).onchange=e=>setS('hl',e.target.checked?1:0);
  $('#ex',root).onclick=saveBackup;$('#im',root).onchange=e=>{const f=e.target.files[0];if(f)restoreBackup(f);e.target.value=''};

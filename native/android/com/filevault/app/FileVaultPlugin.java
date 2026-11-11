@@ -365,4 +365,32 @@ public class FileVaultPlugin extends Plugin {
       call.resolve(o);
     } catch (Exception e) { call.reject("Could not read storage size: " + e.getMessage()); }
   }
+
+  /** Fingerprint / face / device-credential-free biometric check. Resolves when the person is recognised. */
+  @PluginMethod
+  public void biometricAuth(final PluginCall call) {
+    if (Build.VERSION.SDK_INT < 28 || getActivity() == null) { call.reject("Biometric unlock needs Android 9 or newer."); return; }
+    final java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean(false);
+    getActivity().runOnUiThread(() -> {
+      try {
+        android.content.Context c = getContext();
+        android.hardware.biometrics.BiometricPrompt prompt = new android.hardware.biometrics.BiometricPrompt.Builder(c)
+            .setTitle(call.getString("title", "Unlock FileVault"))
+            .setNegativeButton(call.getString("cancel", "Use pattern"), c.getMainExecutor(),
+                (d, w) -> { if (done.compareAndSet(false, true)) call.reject("cancelled"); })
+            .build();
+        prompt.authenticate(new android.os.CancellationSignal(), c.getMainExecutor(),
+            new android.hardware.biometrics.BiometricPrompt.AuthenticationCallback() {
+              @Override public void onAuthenticationSucceeded(android.hardware.biometrics.BiometricPrompt.AuthenticationResult r) {
+                if (done.compareAndSet(false, true)) call.resolve();
+              }
+              @Override public void onAuthenticationError(int code, CharSequence msg) {
+                if (done.compareAndSet(false, true)) call.reject(String.valueOf(msg));
+              }
+            });
+      } catch (Exception e) {
+        if (done.compareAndSet(false, true)) call.reject("Biometric unlock failed: " + e.getMessage());
+      }
+    });
+  }
 }

@@ -80,6 +80,7 @@ async function openSearch(){
    <button data-go="fav">${ic('heart',22)}<span>Favorites</span></button>
    <button data-go="recent">${ic('music',22)}<span>Recently played</span></button>
    <button data-go="most">${ic('shuffle',22)}<span>Most played</span></button>
+   <button data-go="watch">${ic('video',22)}<span>Watch history</span></button>
    <button data-go="storage">${ic('grid',22)}<span>Storage</span></button></div>`};
   const draw=()=>{const q=$('#gq',el).value.trim().toLowerCase();if(!q)return shortcuts();
    const hit=s=>String(s||'').toLowerCase().includes(q),G=[];
@@ -95,6 +96,7 @@ async function openSearch(){
    const act=e.target.closest('[data-go]')?.dataset.go;
    if(act==='fav'){closeAll();lib.type='fav';lib.q='';go('lib');return}
    if(act==='recent'||act==='most'){historySheet(act);return}
+   if(act==='watch'){watchSheet();return}
    if(act==='storage'){storageSheet();return}
    const more=e.target.closest('[data-more]');if(more){open[more.dataset.more]=1;const y=el.scrollTop;draw();el.scrollTop=y;return}
    const r=e.target.closest('[data-g]');if(!r)return;const g=box._G.find(x=>x.k===r.dataset.g),x=g.l[+r.dataset.j];
@@ -125,3 +127,27 @@ async function storageSheet(){
    <p class="mu">Calculated on this phone from FileVault's index. Nothing is uploaded.</p></div>`;
   $('[data-x]',el).onclick=()=>el.close();
   el.onclick=e=>{const r=e.target.closest('[data-p]');if(r)openFile(r.dataset.p)}})}
+
+/* ----- watch history: what you are in the middle of, and what you finished ----- */
+let wlog=null;
+const wlogLoad=async()=>wlog||(wlog=(await getS('wlog'))||{});
+function wlogSet(p){wlogLoad().then(w=>{w[p]=Date.now();setS('wlog',w)}).catch(()=>{})}
+const watchName=p=>{const m=cvMovies.find(x=>x.videoPath===p);return m?m.title:(byPath.get(p)?.name||baseName(p)).replace(/\.[^.]+$/,'')};
+async function watchSheet(){
+ const w=await wlogLoad();let tab='all';
+ sheet(el=>{
+  const items=new Map();
+  Object.entries(pos).forEach(([p,x])=>{if(resOK(x)&&byPath.has(p))items.set(p,{p,at:x.at||0,t:x.t,d:x.d,done:false})});
+  Object.entries(w).forEach(([p,at])=>{if(byPath.has(p)&&!items.has(p))items.set(p,{p,at,done:true})});
+  const all=[...items.values()].sort((a,b)=>b.at-a.at),l=all.filter(x=>tab==='all'||(tab==='go'?!x.done:x.done)).slice(0,100);
+  el.innerHTML=`<header class="hd"><button class="i" data-x aria-label="Back">${ic('back',24)}</button><h2><span>Watch history</span></h2></header>
+   <div class="pad"><div class="tabs">${[['all','All'],['go','In progress'],['done','Finished']].map(([k,n])=>`<button data-k="${k}" class="${tab===k?'on':''}">${n}</button>`).join('')}</div>
+   ${l.length?l.map(x=>`<div class="gs" data-p="${esc(x.p)}">${ic('video',22)}<div class="t"><b>${esc(watchName(x.p))}</b><small>${x.done?'Finished':'Resume at '+fmt(x.t)+(x.d?' of '+fmt(x.d):'')} · ${x.at?new Date(x.at).toLocaleDateString():''}</small>${!x.done&&x.d?`<div class="sbar" style="height:4px;margin:6px 0 0"><i style="width:${Math.min(100,x.t/x.d*100)}%;background:var(--ac)"></i></div>`:''}</div><button class="i" data-rm="${esc(x.p)}" aria-label="Remove from history">${ic('trash',18)}</button></div>`).join(''):'<p class="mu">Nothing here yet. Videos you watch will show up in this list.</p>'}
+   ${all.length?'<div class="row"><button class="b2 dn" id="wc">Clear all history</button></div>':''}</div>`;
+  $('[data-x]',el).onclick=()=>el.close();
+  $('.tabs',el).onclick=e=>{const b=e.target.closest('[data-k]');if(b){tab=b.dataset.k;el.refresh()}};
+  el.onclick=async e=>{
+   const rm=e.target.closest('[data-rm]');
+   if(rm){const p=rm.dataset.rm;delete pos[p];delete w[p];await savePos(true);await setS('wlog',w);el.refresh();return}
+   if(e.target.closest('#wc')){for(const k of Object.keys(w))delete w[k];for(const k of Object.keys(pos))if(byPath.has(k))delete pos[k];await savePos(true);await setS('wlog',w);el.refresh();toast('History cleared');return}
+   const r=e.target.closest('.gs[data-p]');if(r)playVideo(r.dataset.p,{title:watchName(r.dataset.p)})}})}

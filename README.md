@@ -1,4 +1,4 @@
-# FileVault 2.7
+# FileVault 2.8
 
 Offline Android file organizer with CineVault built in. Same Capacitor + GitHub Actions build as before.
 
@@ -8,6 +8,13 @@ Offline Android file organizer with CineVault built in. Same Capacitor + GitHub 
 3. Download `filevault-debug-apk`, install the APK, grant "All files access", tap the scan button.
 
 ## What changed in this version
+- **Albums**: names, **descriptions** and **cover photos** (only a small copy of the picture is kept), **nested subfolders** (a subfolder can hold subfolders), **sort** (recently added, name, newest, oldest, largest), **grid size** (list, small, medium, large), **search inside an album or subfolder**, and a **favorites only** filter. Originals are never touched.
+- **Reader**: **.txt books** (chapters are detected from "Chapter 1"-style lines, otherwise the text is cut into parts), **.pdf** books (opened in the PDF viewer), **.cbr** comics (works when the file is really a ZIP, which most are; a true RAR shows a clear message), **custom folder covers and descriptions**, **favorite folders** with a Favorites filter, and **bookmarks** inside every novel and manga series (bookmark button in the reader bar).
+- **CineVault watch history**: clock button in CineVault (also Settings > Tools and Search everything): in-progress and finished videos with dates, remove one or clear all. Resume from the exact second already worked.
+- **Biometric unlock**: Settings > Lock > "Unlock with fingerprint or face". Uses Android's own prompt (Android 9+). The pattern always still works. This only unlocks the app screen; it does not encrypt your files.
+- Backups now also carry bookmarks and watch history.
+
+### Added in 2.7
 - **Sleep timer** (Now playing): 15, 30, 45 or 60 minutes. It runs inside the Android music service, so it still stops the music with the screen off.
 - **Equalizer** (Now playing or Settings > Tools): per-band sliders plus Flat, Bass boost, Treble boost, Vocal and Rock presets, using the phone's own equalizer. Needs the new `MODIFY_AUDIO_SETTINGS` permission, which `prepare-android.js` adds.
 - **Music history**: Recently played and Most played lists, saved on the phone and included in backups.
@@ -15,6 +22,9 @@ Offline Android file organizer with CineVault built in. Same Capacitor + GitHub 
 - **Storage dashboard**: phone used/free space, FileVault library size by file type, biggest folders, largest files, recently added. Calculated locally.
 - **Accent colors** (Settings): pick or mix your own highlight color on top of any theme. Included in backups.
 - Backups now also carry play history, accent color and equalizer settings.
+
+### Still not included
+- Real RAR extraction for .cbr, per-album file-type rules beyond the existing album/subfolder types, and custom app icons.
 
 ### Earlier in 2.6
 - **Video player** is now the CineVault player: full-screen, Landscape/Portrait switch, +/-10 second buttons, seek bar, fit/fill, speed, subtitles for CineVault movies. Videos stream directly from storage (no loading into memory), so long videos work. Resume position is saved every few seconds, on close and when the app goes to the background, so it works for any length. A "Continue watching" row appears in Library > Videos.
